@@ -1,0 +1,84 @@
+# KubeThrifty demo cluster: Kubernetes 1.36 on kind.
+#
+#   kind create cluster --config k8s/kind/cluster.yaml
+#
+# Three nodes, not one. The bin-packer's entire output is a NODE COUNT DELTA, so a single-node
+# cluster cannot demonstrate the product's headline number -- there is nothing to consolidate onto.
+#
+# Image is pinned to an exact patch. v1.36.1 is the only v1.36 tag kind publishes as of 2026-08-21
+# (digest sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5); the node image
+# ships containerd 2.x, which is what makes PSI metrics available at all -- the 1.7 line does not
+# expose them.
+#
+# FEATURE GATES -- read before adding any:
+#   InPlacePodVerticalScaling            GA in 1.35. DO NOT SET. Setting a GA gate emits
+#                                        "Setting GA feature gate ... is unnecessary" and future
+#                                        releases will reject it outright.
+#   KubeletPSI                           GA in 1.36. DO NOT SET, same reason.
+#   InPlacePodLevelResourcesVerticalScaling
+#                                        Beta in 1.36, so it IS still gated and must be requested
+#                                        explicitly. This is pod-level resize, distinct from the
+#                                        container-level resize that went GA.
+#
+# NO `extraMounts` FOR /sys/fs/cgroup -- read this before adding one back. A kind node is itself a
+# container, and it needs its OWN writable cgroup filesystem at /sys/fs/cgroup for systemd to boot.
+# Mounting the host tree over that path (read-only, no less) means systemd never reaches
+# `multi-user.target` and `kind create` fails with the misleading
+# "could not find a log line that matches Reached target Multi-User System".
+#
+# The cgroup-truth DaemonSet does not need it either: its pod mounts /sys/fs/cgroup as a hostPath
+# volume, and inside kind the "host" IS the node container, which already has the real cgroup tree.
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: kubethrifty
+
+featureGates:
+  InPlacePodLevelResourcesVerticalScaling: true
+
+networking:
+  apiServerAddress: "127.0.0.1"
+  # Disable the default CNI only if replacing it; kindnet is fine here and keeps DaemonSet
+  # overhead representative of a real cluster.
+  disableDefaultCNI: false
+
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.1
+    kubeadmConfigPatches:
+      # Expose the kubelet's read-only metrics surface the analyser depends on, and label the node
+      # so the ingress controller can be pinned to it.
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+      # No `runtime-config: api/all=true`. The `pods/resize` subresource went GA in 1.35, so it is
+      # served by default -- and enabling every alpha API cluster-wide to get one GA subresource
+      # would widen the API surface for no reason on a project whose whole argument is blast-radius
+      # discipline.
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+
+  - role: worker
+    image: kindest/node:v1.36.1
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "kubethrifty.io/pool=demo"
+
+  - role: worker
+    image: kindest/node:v1.36.1
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "kubethrifty.io/pool=demo"

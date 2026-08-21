@@ -1,0 +1,28 @@
+apiVersion: v2
+name: kubethrifty
+description: >-
+  Kubernetes pod right-sizing advisor. Sizes CPU from percentiles and memory from the observed
+  kernel high-water mark, rehearses candidate sizes on a live pod, and opens pull requests. The only
+  mutating RBAC verb in the whole system is `patch` on `pods/resize`.
+type: application
+
+# Chart version is independent of appVersion: a values-only change bumps this and not that.
+version: 0.3.0
+appVersion: "0.3.0"
+
+kubeVersion: ">=1.35.0-0"
+
+home: https://github.com/kubethrifty/kubethrifty
+keywords:
+  - rightsizing
+  - cost-optimization
+  - psi
+  - cgroup-v2
+  - in-place-resize
+
+maintainers:
+  - name: KubeThrifty
+
+annotations:
+  # Helm 4 renders this in `helm upgrade` output.
+  artifacthub.io/containsSecurityUpdates: "false"

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: sample-app
+    # NOT `kubethrifty.io/tier: critical`. The rehearsal preflight refuses to experiment in a
+    # namespace carrying that label, and the demo needs rehearsals to actually run here.
+    kubethrifty.io/tier: demo
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted

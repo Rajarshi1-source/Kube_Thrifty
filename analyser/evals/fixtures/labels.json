@@ -1,0 +1,53 @@
+{
+  "_meta": {
+    "hours": 504,
+    "holdout_hours": 72,
+    "seed": 20260622,
+    "freq": "h",
+    "unit": "cpu_cores"
+  },
+  "fixtures": {
+    "flat_steady": {
+      "requested_cores": 2.0,
+      "expect_action": "reduce",
+      "expect_confidence": "high",
+      "expect_forecast_floor": false,
+      "expect_confident_forecast": true
+    },
+    "bursty": {
+      "requested_cores": 1.0,
+      "expect_action": "reduce",
+      "expect_confidence": "medium",
+      "expect_forecast_floor": false,
+      "expect_confident_forecast": true
+    },
+    "rising_trend": {
+      "requested_cores": 1.0,
+      "expect_action": "reduce",
+      "expect_confidence": "high",
+      "expect_forecast_floor": true,
+      "expect_confident_forecast": true
+    },
+    "weekly_seasonal": {
+      "requested_cores": 1.0,
+      "expect_action": "reduce",
+      "expect_confidence": "high",
+      "expect_forecast_floor": false,
+      "expect_confident_forecast": true
+    },
+    "nearly_idle": {
+      "requested_cores": 1.0,
+      "expect_action": "reduce",
+      "expect_confidence": "high",
+      "expect_forecast_floor": false,
+      "expect_confident_forecast": true
+    },
+    "noisy_short": {
+      "requested_cores": 1.0,
+      "expect_action": "needs_review",
+      "expect_confidence": "low",
+      "expect_forecast_floor": false,
+      "expect_confident_forecast": false
+    }
+  }
+}

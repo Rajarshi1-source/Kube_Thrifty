@@ -1,0 +1,34 @@
+[project]
+name = "kubethrifty-analyser"
+version = "3.0.0"                 # Rev 3
+description = "KubeThrifty analyser: sizing, forecasting, rehearsal, packing and ThriftDetective"
+requires-python = ">=3.14"
+dynamic = ["dependencies"]
+
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools]
+packages = ["src"]
+
+# `analyser/` is the import root: the harnesses import `src.*`, so the promoted modules are the
+# ONE implementation of each rule. No copies, no drift between what CI grades and what ships.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests", "evals"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# The frozen Rev 2 engine is kept verbatim for the before/after diff.
+"evals/legacy/*" = ["ALL"]

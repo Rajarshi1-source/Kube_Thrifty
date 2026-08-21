@@ -1,0 +1,128 @@
+{
+  "_comment": [
+    "Pinned instance catalogue and price list. Prices live IN THE REPO, not fetched at analysis time.",
+    "Three reasons: an analysis run must be reproducible months later; a pricing-API outage must never",
+    "block a recommendation; and a savings figure in a merged PR has to still mean something when",
+    "somebody reads the PR next quarter. `as_of` is printed next to every rupee figure in the UI so a",
+    "stale catalogue is visible rather than silently wrong.",
+    "",
+    "allocatable() subtracts kube-reserved before packing. Advertised capacity is NOT schedulable:",
+    "  cpu_reserved_millicores  = min(cpu_total * 0.06, 400)",
+    "  mem_reserved_mib         = min(mem_total * 0.10, 4096) + 100   (+100 = eviction hard threshold)",
+    "max_pods is enforced per instance type because the ENI-based pod cap, not CPU or memory, is",
+    "frequently the real binding constraint on small nodes -- ignore it and the bin-packer invents",
+    "savings that the scheduler will never deliver.",
+    "",
+    "HOURS_PER_MONTH = 730 (365 * 24 / 12). Never 720."
+  ],
+
+  "as_of": "2026-08-01",
+  "currency": "USD",
+  "region": "ap-south-1",
+  "provider": "aws",
+  "hours_per_month": 730,
+  "source": "AWS EC2 On-Demand Linux, Asia Pacific (Mumbai), retrieved 2026-08-01",
+
+  "reservation": {
+    "cpu_reserved_fraction": 0.06,
+    "cpu_reserved_cap_millicores": 400,
+    "mem_reserved_fraction": 0.10,
+    "mem_reserved_cap_mib": 4096,
+    "eviction_threshold_mib": 100
+  },
+
+  "instances": [
+    {
+      "type": "m7i.large",
+      "cpu_millicores": 2000,
+      "memory_mib": 8192,
+      "max_pods": 29,
+      "on_demand_hourly": 0.1008,
+      "arch": "x86_64"
+    },
+    {
+      "type": "m7i.xlarge",
+      "cpu_millicores": 4000,
+      "memory_mib": 16384,
+      "max_pods": 58,
+      "on_demand_hourly": 0.2016,
+      "arch": "x86_64"
+    },
+    {
+      "type": "m7i.2xlarge",
+      "cpu_millicores": 8000,
+      "memory_mib": 32768,
+      "max_pods": 58,
+      "on_demand_hourly": 0.4032,
+      "arch": "x86_64"
+    },
+    {
+      "type": "c7i.xlarge",
+      "cpu_millicores": 4000,
+      "memory_mib": 8192,
+      "max_pods": 58,
+      "on_demand_hourly": 0.1785,
+      "arch": "x86_64"
+    },
+    {
+      "type": "r7i.xlarge",
+      "cpu_millicores": 4000,
+      "memory_mib": 32768,
+      "max_pods": 58,
+      "on_demand_hourly": 0.2646,
+      "arch": "x86_64"
+    }
+  ],
+
+  "scenarios": {
+    "fixed_node_pool": {
+      "_comment": [
+        "The honest default for a hand-managed node group. Nothing scales in on its own, so a",
+        "right-sizing only saves money once an operator removes a node. Savings are reported as",
+        "'unlocks N nodes' -- a capacity headroom claim, NOT a realised bill reduction."
+      ],
+      "strategy": "fixed",
+      "instance_type": "m7i.xlarge",
+      "surcharge_pct": 0.0,
+      "realises_savings_automatically": false
+    },
+    "self_managed_karpenter": {
+      "_comment": [
+        "Karpenter consolidates and terminates empty nodes without human action, so a node delta",
+        "does become a bill delta. No control-plane surcharge beyond the usual EKS cluster fee."
+      ],
+      "strategy": "consolidating",
+      "instance_families": ["m7i", "c7i", "r7i"],
+      "surcharge_pct": 0.0,
+      "realises_savings_automatically": true,
+      "consolidation_policy": "WhenEmptyOrUnderutilized"
+    },
+    "eks_auto_mode": {
+      "_comment": [
+        "EKS Auto Mode is Karpenter-equivalent for consolidation but AWS bills a management",
+        "surcharge on top of the EC2 price. Applying it matters: a 12% surcharge on the nodes you",
+        "KEEP eats part of the saving from the node you removed, so the same right-sizing is worth",
+        "measurably less here than under self-managed Karpenter. Reporting the two as one number",
+        "would overstate the result."
+      ],
+      "strategy": "consolidating",
+      "instance_families": ["m7i", "c7i", "r7i"],
+      "surcharge_pct": 12.0,
+      "realises_savings_automatically": true,
+      "consolidation_policy": "WhenEmptyOrUnderutilized"
+    }
+  },
+
+  "daemonset_overhead": {
+    "_comment": [
+      "Every new node the packer opens pays this before a single application pod lands on it.",
+      "Seeded onto each node FIRST. Omitting it is the most common way a bin-packing model",
+      "produces a node count the cluster can never actually achieve.",
+      "Measured from the demo cluster: kube-proxy, CNI, kube-state-metrics node agent,",
+      "node-exporter, promtail and KubeThrifty's own cgroup-truth collector."
+    ],
+    "cpu_millicores": 260,
+    "memory_mib": 412,
+    "pod_count": 6
+  }
+}

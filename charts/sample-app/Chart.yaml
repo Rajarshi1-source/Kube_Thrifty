@@ -1,0 +1,15 @@
+apiVersion: v2
+name: sample-app
+description: >-
+  Five deliberately over-provisioned demo services for KubeThrifty. Requests 5.5 CPU / 6.5 GiB
+  against a ~1.7 CPU / 2.6 GiB real peak. The gap is the demo, not a bug.
+type: application
+version: 3.0.0
+appVersion: "3.0.0"
+kubeVersion: ">=1.35.0-0"
+keywords:
+  - kubethrifty
+  - demo
+  - right-sizing
+annotations:
+  kubethrifty.io/purpose: "demo fixture -- do not deploy to a real cluster"

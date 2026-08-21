@@ -1,0 +1,42 @@
+# Build context is the repo root (the analyser image needs config/ as well as analyser/src/), so
+# this file is what keeps that context small.
+
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+
+node_modules
+dashboard/.next
+dashboard/node_modules
+
+# Docs, skills and the spec are not part of any image.
+docs
+.claude
+.cursor
+*.md
+!analyser/README.md
+
+# The eval harnesses, fixtures and corpus are CI artefacts, not runtime code. The analyser image
+# ships src/ only -- the gates run in the CI job, against the same modules.
+analyser/evals
+analyser/tests
+
+# Local stack config
+docker-compose.yml
+k8s
+charts
+monitoring
+sample-app
+
+# Never ship a credential into a layer.
+.env
+.env.*
+*.pem
+*.key
+kubeconfig*

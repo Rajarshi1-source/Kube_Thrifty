@@ -1,0 +1,105 @@
+@import 'tailwindcss';
+
+/**
+ * Tailwind v4, CSS-first. All design tokens live in `@theme` -- there is no tailwind.config.js.
+ *
+ * Two token families exist beyond the usual semantic set, and they are the ones that carry the
+ * product's meaning:
+ *
+ *   --color-waste-*     how much of a request went unused. A RATIO, never money.
+ *   --color-pressure-*  observed suffering (PSI stall, CFS throttling, OOM).
+ *
+ * They are separate scales on purpose. Waste and pressure are orthogonal: a workload can be wasteful
+ * and comfortable (safe to shrink), or lean and suffering (must grow). Sharing one colour scale would
+ * imply an ordering between them that does not exist, and the waste-versus-pressure quadrant depends
+ * on a reader seeing them as different axes.
+ *
+ * `--color-unobserved-*` is the third critical family: the treatment for a signal that was NOT
+ * MEASURED. It is deliberately a neutral, hatched grey -- never green, never a zero on a scale.
+ * Rendering missing PSI as "no pressure" would be an argument for shrinking a workload that may in
+ * fact be stalling.
+ */
+@theme {
+  /* Dark-mode-first surfaces. */
+  --color-surface-0: oklch(0.16 0.01 260);
+  --color-surface-1: oklch(0.21 0.012 260);
+  --color-surface-2: oklch(0.26 0.014 260);
+  --color-surface-3: oklch(0.32 0.016 260);
+
+  --color-border-subtle: oklch(0.32 0.014 260);
+  --color-border-strong: oklch(0.44 0.018 260);
+
+  --color-text-primary: oklch(0.96 0.004 260);
+  --color-text-secondary: oklch(0.76 0.012 260);
+  --color-text-muted: oklch(0.60 0.014 260);
+
+  /* Waste: how much of the request is unused. Cool -> warm as waste grows. */
+  --color-waste-none: oklch(0.62 0.13 200);
+  --color-waste-low: oklch(0.72 0.14 150);
+  --color-waste-moderate: oklch(0.80 0.15 95);
+  --color-waste-high: oklch(0.74 0.17 60);
+  --color-waste-severe: oklch(0.66 0.19 35);
+
+  /* Pressure: observed suffering. A distinct hue family from waste, deliberately. */
+  --color-pressure-none: oklch(0.55 0.02 260);
+  --color-pressure-low: oklch(0.70 0.13 300);
+  --color-pressure-moderate: oklch(0.66 0.17 330);
+  --color-pressure-high: oklch(0.60 0.21 5);
+  --color-pressure-critical: oklch(0.54 0.24 20);
+
+  /* NOT OBSERVED. Never green, never zero. */
+  --color-unobserved-bg: oklch(0.28 0.006 260);
+  --color-unobserved-fg: oklch(0.62 0.008 260);
+  --color-unobserved-border: oklch(0.40 0.008 260);
+
+  /* Evidence tiers, ordered by strength: rehearsed > modelled > partial. */
+  --color-evidence-rehearsed: oklch(0.74 0.16 155);
+  --color-evidence-modelled: oklch(0.72 0.14 240);
+  --color-evidence-partial: oklch(0.76 0.14 85);
+
+  /* Recommendation actions. */
+  --color-action-reduce: oklch(0.74 0.15 155);
+  --color-action-increase: oklch(0.74 0.16 55);
+  --color-action-keep: oklch(0.66 0.02 260);
+  --color-action-review: oklch(0.72 0.17 25);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-surface-0);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Numbers in tables must align by column, or two figures cannot be compared at a glance. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  /**
+   * The "not observed" treatment. A diagonal hatch, because a solid fill of any colour reads as a
+   * VALUE, and the entire point is that there is no value here.
+   */
+  .not-observed {
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--color-unobserved-bg),
+      var(--color-unobserved-bg) 4px,
+      transparent 4px,
+      transparent 8px
+    );
+    color: var(--color-unobserved-fg);
+    border: 1px dashed var(--color-unobserved-border);
+  }
+}

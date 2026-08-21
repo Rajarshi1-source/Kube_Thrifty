@@ -1,0 +1,176 @@
+{{- if and .Values.cgroupCollector.enabled .Values.cgroupCollector.recordingRules.enabled }}
+# ================================================================================================
+# Recording rules that join cgroup truth to Kubernetes identity.
+#
+# WHY THIS FILE EXISTS
+#
+# The collector holds no Kubernetes credentials -- deliberately, because it is the one pod in the
+# system that mounts a host path, and a host-path pod with an API token is a much worse thing than a
+# host-path pod without one. So it labels its samples with only what the kernel can tell it:
+# `container_id`, `pod_uid`, `qos_class` and `node`.
+#
+# Those are unjoinable to a recommendation on their own. These rules do the translation ONCE, in one
+# auditable place, publishing series labelled the way every consumer already expects.
+#
+# WHY on(container_id) AND NOT on(container_id, pod_uid)
+#
+# A container ID is already globally unique, so `pod_uid` adds no selectivity -- but it does add a
+# way to FAIL. The collector reconstructs the pod UID from the cgroup directory name (the systemd
+# driver substitutes '_' for '-'), while kube-state-metrics reports it from the API. Any encoding
+# disagreement drops the pair. Measured on a live cluster: joining on container_id alone matched 22
+# containers; adding pod_uid matched only 18. The extra key silently lost four containers, and the
+# result still looked like a working join.
+#
+# `container_id` needs its `containerd://` prefix stripped: kube-state-metrics reports the CRI URI,
+# the kernel knows only the bare ID.
+#
+# A missing series stays missing. None of these rules substitutes a default, so a container the
+# collector could not read simply has no recorded series -- which every consumer already reads as
+# "not observed" rather than as zero.
+# ================================================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-cgroup-truth
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    {{- with .Values.cgroupCollector.recordingRules.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: kubethrifty.cgroup-truth
+      # Matches the collector's scrape interval. Recording faster than the source is scraped just
+      # republishes the same sample under a new timestamp.
+      interval: 30s
+      rules:
+        # ----------------------------------------------------------------------------------------
+        # THE memory sizing basis: the kernel's monotonic high-water mark.
+        #
+        # This is what `size_memory` prefers over container_memory_working_set_bytes. cAdvisor
+        # samples every 15s and therefore cannot see a 2-second allocation burst; memory.peak is not
+        # sampling, it is remembering. When this series exists for a container, the resulting
+        # recommendation earns `modelled`; when it does not, memory falls back to the sampled gauge
+        # and the recommendation is stamped `partial`.
+        # ----------------------------------------------------------------------------------------
+        - record: kubethrifty:cgroup_memory_peak_bytes:container
+          expr: |
+            kubethrifty_cgroup_memory_peak_bytes
+              * on (container_id) group_left (namespace, pod, container)
+                label_replace(
+                  kube_pod_container_info,
+                  "container_id", "$1", "container_id", "containerd://(.+)"
+                )
+
+        # Memory limit, as the kernel sees it. Absent for unlimited containers -- memory.max reads
+        # "max", which the collector parses to None and does not export. An unlimited container has
+        # no limit, not a limit of zero.
+        - record: kubethrifty:cgroup_memory_limit_bytes:container
+          expr: |
+            kubethrifty_cgroup_memory_limit_bytes
+              * on (container_id) group_left (namespace, pod, container)
+                label_replace(
+                  kube_pod_container_info,
+                  "container_id", "$1", "container_id", "containerd://(.+)"
+                )
+
+        # ----------------------------------------------------------------------------------------
+        # The Headroom Index: 1 - (peak / limit).
+        #
+        # 0 means the observed peak reached the limit, i.e. an OOM kill has happened or is imminent.
+        # Strictly better than "current usage / limit", which is a snapshot and misses the burst.
+        # Absent when the container has no limit, because infinite headroom is not a number and must
+        # not sit on the same scale as measured values.
+        # ----------------------------------------------------------------------------------------
+        - record: kubethrifty:cgroup_memory_headroom_index:container
+          expr: |
+            kubethrifty_cgroup_memory_headroom_index
+              * on (container_id) group_left (namespace, pod, container)
+                label_replace(
+                  kube_pod_container_info,
+                  "container_id", "$1", "container_id", "containerd://(.+)"
+                )
+
+        # OOM kills, by COUNTER. Never the flapping
+        # kube_pod_container_status_last_terminated_reason gauge.
+        - record: kubethrifty:cgroup_oom_kill_total:container
+          expr: |
+            kubethrifty_cgroup_oom_kill_total
+              * on (container_id) group_left (namespace, pod, container)
+                label_replace(
+                  kube_pod_container_info,
+                  "container_id", "$1", "container_id", "containerd://(.+)"
+                )
+
+        # The throttle RATIO, already divided by the collector. Raw period counters scale with
+        # window length, replica count and CFS period, so two of them are not comparable; the ratio
+        # is. Absent when nr_periods is 0 -- an undefined ratio, not a ratio of zero.
+        - record: kubethrifty:cgroup_cpu_throttle_ratio:container
+          expr: |
+            kubethrifty_cgroup_cpu_throttle_ratio
+              * on (container_id) group_left (namespace, pod, container)
+                label_replace(
+                  kube_pod_container_info,
+                  "container_id", "$1", "container_id", "containerd://(.+)"
+                )
+
+        # PSI `full` -- EVERY task stalled. `some` is the steady state of any busy node and would
+        # block every reduction if treated as pressure.
+        - record: kubethrifty:cgroup_memory_psi_full:container
+          expr: |
+            kubethrifty_cgroup_memory_pressure_full_avg10
+              * on (container_id) group_left (namespace, pod, container)
+                label_replace(
+                  kube_pod_container_info,
+                  "container_id", "$1", "container_id", "containerd://(.+)"
+                )
+
+        - record: kubethrifty:cgroup_cpu_psi_full:container
+          expr: |
+            kubethrifty_cgroup_cpu_pressure_full_avg10
+              * on (container_id) group_left (namespace, pod, container)
+                label_replace(
+                  kube_pod_container_info,
+                  "container_id", "$1", "container_id", "containerd://(.+)"
+                )
+
+    # --------------------------------------------------------------------------------------------
+    # Collector health.
+    #
+    # A collector that is running but reading nothing must be distinguishable from a healthy one on
+    # a quiet cluster. Without these alerts, a silently broken collector degrades every memory
+    # recommendation to `partial` and nothing says why.
+    # --------------------------------------------------------------------------------------------
+    - name: kubethrifty.cgroup-collector-health
+      rules:
+        - alert: KubeThriftyCgroupCollectorBlind
+          expr: kubethrifty_cgroup_scrape_targets == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: cgroup collector on {{ "{{ $labels.node }}" }} discovered no containers
+            description: >-
+              The collector is running but found no container cgroups. Check that /sys/fs/cgroup is
+              mounted read-only into the pod and that the node is cgroup v2. Until this is fixed,
+              memory sizing on this node falls back to a sampled gauge and every memory
+              recommendation is stamped `partial`.
+
+        - alert: KubeThriftyCgroupEvidenceIncomplete
+          # Targets found, but fewer than half yielded both memory.peak and PSI.
+          expr: |
+            kubethrifty_cgroup_scrape_targets > 0
+            and
+            kubethrifty_cgroup_scrape_evidence_complete
+              / kubethrifty_cgroup_scrape_targets < 0.5
+          for: 15m
+          labels:
+            severity: info
+          annotations:
+            summary: cgroup evidence incomplete on {{ "{{ $labels.node }}" }}
+            description: >-
+              Fewer than half the containers on this node yielded both memory.peak and memory PSI.
+              memory.peak needs kernel 5.19+; PSI needs psi=1. Recommendations for the affected
+              containers will correctly carry the `partial` evidence tier -- this alert exists so
+              that is a known state rather than a surprise.
+{{- end }}

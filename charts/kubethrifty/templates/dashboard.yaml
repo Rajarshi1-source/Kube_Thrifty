@@ -1,0 +1,154 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-dashboard
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubethrifty.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dashboard
+  template:
+    metadata:
+      labels:
+        {{- include "kubethrifty.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: dashboard
+    spec:
+      # NO ServiceAccount token. The dashboard holds no cluster credentials -- it cannot resize a
+      # pod because it has no mechanism to try. Its single write in the entire system is an XADD onto
+      # the analysis-jobs stream.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread across nodes, so losing one node cannot take the whole dashboard with it.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "kubethrifty.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: dashboard
+      containers:
+        - name: dashboard
+          image: "{{ .Values.dashboard.image.repository }}:{{ .Values.dashboard.image.tag }}"
+          imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: CLUSTER_NAME
+              value: {{ .Values.clusterName | default "kubethrifty-demo" | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubethrifty.fullname" . }}-db
+                  # The read-only role. The pool also sets default_transaction_read_only=on, so a
+                  # stray INSERT is refused by the SERVER rather than by a reviewer noticing it.
+                  key: url_readonly
+            - name: REDIS_URL
+              value: "redis://{{ include "kubethrifty.fullname" . }}-valkey:6379/0"
+            - name: PROMETHEUS_URL
+              value: {{ .Values.prometheus.url | quote }}
+          ports:
+            - name: http
+              containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Liveness must NOT depend on the database: a dependency outage would restart this pod,
+          # which cannot fix the dependency and turns one outage into a crash-loop.
+          livenessProbe:
+            httpGet:
+              path: /api/health?probe=live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          # Readiness DOES check dependencies, but returns 200 for `degraded` -- pulling a degraded
+          # replica out of service just moves its traffic onto equally degraded siblings.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          volumeMounts:
+            - name: cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-dashboard
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  selector:
+    {{- include "kubethrifty.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+  ports:
+    - name: http
+      port: {{ .Values.dashboard.service.port }}
+      targetPort: http
+{{- if .Values.dashboard.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-dashboard
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.dashboard.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "kubethrifty.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dashboard
+{{- end }}
+{{- if .Values.dashboard.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-dashboard
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.dashboard.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.dashboard.ingress.className }}
+  {{- with .Values.dashboard.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.dashboard.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kubethrifty.fullname" $ }}-dashboard
+                port:
+                  name: http
+    {{- end }}
+{{- end }}
+{{- end }}

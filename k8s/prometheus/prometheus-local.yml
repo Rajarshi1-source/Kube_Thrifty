@@ -1,0 +1,27 @@
+# Local (docker-compose) Prometheus config. The kind cluster uses kube-prometheus-stack instead --
+# see kube-prometheus-stack-values.yaml, which is where the cAdvisor and PSI scrape configuration
+# that actually matters lives.
+#
+# 15s is not arbitrary: rate() over container_cpu_cfs_throttled_periods_total needs several samples
+# inside the shortest window the analyser asks about, and the rehearsal's 300s baseline window has
+# to contain enough points to compute a throttle ratio that means something.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: kubethrifty-local
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # KubeThrifty's own cgroup-truth collector, when run locally against the host cgroup tree.
+  # In-cluster this is a PodMonitor against the DaemonSet on port 9847.
+  - job_name: kubethrifty-cgroup-truth
+    static_configs:
+      - targets: ["host.docker.internal:9847"]
+    # A collector that dies silently must not read as "no pressure": the collector exports a
+    # scrape-health metric, and `up` here is the outer backstop for the same failure mode.
+    honor_labels: true

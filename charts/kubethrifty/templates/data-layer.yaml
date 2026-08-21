@@ -1,0 +1,213 @@
+{{- if .Values.timescaledb.enabled }}
+# ================================================================================================
+# TimescaleDB as a StatefulSet.
+#
+# A StatefulSet, not a Deployment: this pod owns a PersistentVolume, and a Deployment's rolling
+# update would happily start a second pod against the same volume. Postgres refuses to run twice
+# against one data directory, so that shows up as a crash-looping replacement rather than data
+# corruption -- but it is still an outage caused by choosing the wrong controller.
+#
+# The `-all` image tag is REQUIRED: it carries the Timescale Toolkit that percentile_agg and
+# approx_percentile need. The plain image starts fine and then fails 001_core.sql with
+# "function percentile_agg does not exist".
+# ================================================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-timescaledb
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: timescaledb
+spec:
+  serviceName: {{ include "kubethrifty.fullname" . }}-timescaledb
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubethrifty.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: timescaledb
+  template:
+    metadata:
+      labels:
+        {{- include "kubethrifty.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: timescaledb
+    spec:
+      securityContext:
+        # The timescaledb-ha image runs as the `postgres` user (uid 1000).
+        fsGroup: 1000
+      containers:
+        - name: timescaledb
+          image: "{{ .Values.timescaledb.image.repository }}:{{ .Values.timescaledb.image.tag }}"
+          env:
+            - name: POSTGRES_DB
+              value: kubethrifty
+            - name: POSTGRES_USER
+              value: kubethrifty
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubethrifty.fullname" . }}-db
+                  key: password
+            # Deterministic collation, so anything that sorts text does not vary by locale -- which
+            # would change a content digest.
+            - name: POSTGRES_INITDB_ARGS
+              value: "--locale=C.UTF-8 --encoding=UTF8"
+            - name: PGDATA
+              value: /home/postgres/pgdata/data
+          ports:
+            - name: postgres
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /home/postgres/pgdata
+            - name: migrations
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kubethrifty", "-d", "kubethrifty"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kubethrifty", "-d", "kubethrifty"]
+            # Generous: the migrations run on first boot and include creating a continuous
+            # aggregate. A tight liveness probe would kill the pod mid-migration and leave a
+            # half-built schema.
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.timescaledb.resources | nindent 12 }}
+      volumes:
+        - name: migrations
+          configMap:
+            name: {{ include "kubethrifty.fullname" . }}-migrations
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.timescaledb.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-timescaledb
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "kubethrifty.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: timescaledb
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-migrations
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+data:
+  # Applied in filename order on first init. `.Files.Glob` keeps the chart as the single source of
+  # truth: the same SQL runs in compose and in-cluster, so a schema that works locally works here.
+  {{- range $path, $_ := .Files.Glob "migrations/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | indent 4 }}
+  {{- end }}
+{{- end }}
+{{- if .Values.valkey.enabled }}
+---
+# ================================================================================================
+# Valkey: cache-aside store, the analysis-jobs stream, and the SET NX run lock.
+#
+# `appendonly yes` because the stream carries QUEUED ANALYSIS JOBS. Losing them on a restart means a
+# silently skipped run, which is worse than a visibly failed one -- nobody notices a right-sizing
+# that quietly stopped happening until the bill arrives.
+#
+# The eviction policy is `volatile-lru`, NOT `allkeys-lru`: stream entries and lock keys must never
+# be evicted to make room for cache entries. `volatile-*` only evicts keys that carry a TTL, and
+# every cache key here has one while stream entries do not.
+# ================================================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-valkey
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+spec:
+  serviceName: {{ include "kubethrifty.fullname" . }}-valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubethrifty.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: valkey
+  template:
+    metadata:
+      labels:
+        {{- include "kubethrifty.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: valkey
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: valkey
+          image: "{{ .Values.valkey.image.repository }}:{{ .Values.valkey.image.tag }}"
+          args:
+            - valkey-server
+            - --appendonly
+            - "yes"
+            - --maxmemory
+            - "256mb"
+            - --maxmemory-policy
+            - "volatile-lru"
+          ports:
+            - name: valkey
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["valkey-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.valkey.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-valkey
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "kubethrifty.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: valkey
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+{{- end }}

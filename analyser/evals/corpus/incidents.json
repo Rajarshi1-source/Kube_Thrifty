@@ -1,0 +1,1623 @@
+[
+  {
+    "bundle": {
+      "_note": "the flagship case: our own cut caused it, and the verdict names the PR",
+      "case": "payment-processor__oom_squeeze",
+      "cgroup": {
+        "memory_current": 333447168,
+        "memory_max": 335544320,
+        "memory_peak": 333447168,
+        "oom_kill_total": 1
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 137,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha212",
+          "container": "app",
+          "delta": {
+            "memory": "1Gi -> 320Mi"
+          },
+          "hours_before_incident": 14.5,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/212",
+          "recommendation_id": 1188
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "payment-processor-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 1,
+        "psi_cpu_full": 0.002,
+        "psi_mem_full": 0.11,
+        "throttle_ratio": 0.004
+      },
+      "startup": null,
+      "workload": "payment-processor"
+    },
+    "ground_truth": "MEM_LIMIT_TOO_LOW",
+    "name": "payment-processor__oom_squeeze"
+  },
+  {
+    "bundle": {
+      "_note": "same shape, different workload -- attribution window is 48h and this is 30h",
+      "case": "session-store__oom_squeeze",
+      "cgroup": {
+        "memory_current": 265289728,
+        "memory_max": 268435456,
+        "memory_peak": 267386880,
+        "oom_kill_total": 2
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 137,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha224",
+          "container": "app",
+          "delta": {
+            "memory": "768Mi -> 256Mi"
+          },
+          "hours_before_incident": 30.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/224",
+          "recommendation_id": 1250
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "session-store-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 2,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.19,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "session-store"
+    },
+    "ground_truth": "MEM_LIMIT_TOO_LOW",
+    "name": "session-store__oom_squeeze"
+  },
+  {
+    "bundle": {
+      "_note": "OOM with no KubeThrifty change nearby -- the verdict must NOT invent attribution",
+      "case": "report-builder__oom_no_attrib",
+      "cgroup": {
+        "memory_current": 529530880,
+        "memory_max": 536870912,
+        "memory_peak": 535822336,
+        "oom_kill_total": 3
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 137,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "report-builder-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 3,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.22,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "report-builder"
+    },
+    "ground_truth": "MEM_LIMIT_TOO_LOW",
+    "name": "report-builder__oom_no_attrib"
+  },
+  {
+    "bundle": {
+      "_note": "a single large allocation: peak far below the limit, so confidence is lower even though the kill is real and attributable",
+      "case": "pdf-exporter__oom_spike_attrib",
+      "cgroup": {
+        "memory_current": 314572800,
+        "memory_max": 1073741824,
+        "memory_peak": 734003200,
+        "oom_kill_total": 1
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 137,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha233",
+          "container": "app",
+          "delta": {
+            "memory": "2Gi -> 1Gi"
+          },
+          "hours_before_incident": 20.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/233",
+          "recommendation_id": 1290
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "pdf-exporter-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 1,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.04,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "pdf-exporter"
+    },
+    "ground_truth": "MEM_LIMIT_TOO_LOW",
+    "name": "pdf-exporter__oom_spike_attrib"
+  },
+  {
+    "bundle": {
+      "_note": "same shape without attribution",
+      "case": "image-resizer__oom_spike",
+      "cgroup": {
+        "memory_current": 293601280,
+        "memory_max": 1073741824,
+        "memory_peak": 671088640,
+        "oom_kill_total": 1
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 137,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "image-resizer-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 1,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.03,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "image-resizer"
+    },
+    "ground_truth": "MEM_LIMIT_TOO_LOW",
+    "name": "image-resizer__oom_spike"
+  },
+  {
+    "bundle": {
+      "_note": "the cgroup oom_kill counter moved but the pod's exit code says otherwise -- a sidecar was killed, not the main container. Deliberately low confidence",
+      "case": "log-shipper__oom_counter_only",
+      "cgroup": {
+        "memory_current": 188743680,
+        "memory_max": 536870912,
+        "memory_peak": 440401920,
+        "oom_kill_total": 1
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "log-shipper-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 1,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.02,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "log-shipper"
+    },
+    "ground_truth": "MEM_LIMIT_TOO_LOW",
+    "name": "log-shipper__oom_counter_only"
+  },
+  {
+    "bundle": {
+      "_note": "low average usage, high PSI: needs MORE memory. No tool without PSI can see this",
+      "case": "inventory-cache__reclaim_thrash",
+      "cgroup": {
+        "memory_current": 513802240,
+        "memory_max": 536870912,
+        "memory_peak": 522190848,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "inventory-cache-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.001,
+        "psi_mem_full": 0.14,
+        "throttle_ratio": 0.002
+      },
+      "startup": null,
+      "workload": "inventory-cache"
+    },
+    "ground_truth": "MEM_PRESSURE_NO_KILL",
+    "name": "inventory-cache__reclaim_thrash"
+  },
+  {
+    "bundle": {
+      "_note": "attributable thrash: our cut made it stall without killing it",
+      "case": "search-indexer__thrash_after_cut",
+      "cgroup": {
+        "memory_current": 796917760,
+        "memory_max": 838860800,
+        "memory_peak": 817889280,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha230",
+          "container": "app",
+          "delta": {
+            "memory": "2Gi -> 800Mi"
+          },
+          "hours_before_incident": 6.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/230",
+          "recommendation_id": 1301
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "search-indexer-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.004,
+        "psi_mem_full": 0.09,
+        "throttle_ratio": 0.01
+      },
+      "startup": null,
+      "workload": "search-indexer"
+    },
+    "ground_truth": "MEM_PRESSURE_NO_KILL",
+    "name": "search-indexer__thrash_after_cut"
+  },
+  {
+    "bundle": {
+      "_note": "genuinely under-sized despite headroom in the limit: the working set churns",
+      "case": "feed-worker__thrash_below_limit",
+      "cgroup": {
+        "memory_current": 629145600,
+        "memory_max": 1073741824,
+        "memory_peak": 650117120,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "feed-worker-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.08,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "feed-worker"
+    },
+    "ground_truth": "MEM_PRESSURE_NO_KILL",
+    "name": "feed-worker__thrash_below_limit"
+  },
+  {
+    "bundle": {
+      "_note": "the stall came from another pod exhausting the NODE, not from this container's limit -- it is using 15% of its own 2Gi. Raising its request would be actively harmful: harder to schedule, on a node that has nothing left",
+      "case": "thumbnailer__noisy_neighbour",
+      "cgroup": {
+        "memory_current": 314572800,
+        "memory_max": 2147483648,
+        "memory_peak": 335544320,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": {
+        "available_mib": 210,
+        "conditions": {
+          "MemoryPressure": "True"
+        },
+        "eviction_threshold_crossed": true
+      },
+      "node_allocatable": null,
+      "pod": "thumbnailer-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.07,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "thumbnailer"
+    },
+    "ground_truth": "NODE_PRESSURE_EVICTION",
+    "name": "thumbnailer__noisy_neighbour"
+  },
+  {
+    "bundle": {
+      "_note": "throttling AND stalling = real harm, and it is ours",
+      "case": "checkout-api__throttle_squeeze",
+      "cgroup": {
+        "memory_current": 209715200,
+        "memory_max": 536870912,
+        "memory_peak": 220200960,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha241",
+          "container": "app",
+          "delta": {
+            "cpu": "1000m -> 250m"
+          },
+          "hours_before_incident": 3.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/241",
+          "recommendation_id": 1360
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "checkout-api-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.12,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.31
+      },
+      "startup": null,
+      "workload": "checkout-api"
+    },
+    "ground_truth": "CPU_LIMIT_TOO_LOW",
+    "name": "checkout-api__throttle_squeeze"
+  },
+  {
+    "bundle": {
+      "_note": "latency-sensitive service, clear stall",
+      "case": "graphql-gateway__throttle_stall",
+      "cgroup": {
+        "memory_current": 367001600,
+        "memory_max": 1073741824,
+        "memory_peak": 377487360,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "graphql-gateway-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.07,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.22
+      },
+      "startup": null,
+      "workload": "graphql-gateway"
+    },
+    "ground_truth": "CPU_LIMIT_TOO_LOW",
+    "name": "graphql-gateway__throttle_stall"
+  },
+  {
+    "bundle": {
+      "_note": "user-facing import job: throttling does hurt here, but the evidence is weaker",
+      "case": "csv-importer__throttle_light_stall",
+      "cgroup": {
+        "memory_current": 167772160,
+        "memory_max": 536870912,
+        "memory_peak": 178257920,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "csv-importer-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.008,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.11
+      },
+      "startup": null,
+      "workload": "csv-importer"
+    },
+    "ground_truth": "CPU_LIMIT_TOO_LOW",
+    "name": "csv-importer__throttle_light_stall"
+  },
+  {
+    "bundle": {
+      "_note": "same shape, lower throttle ratio",
+      "case": "webhook-fanout__throttle_light_stall",
+      "cgroup": {
+        "memory_current": 125829120,
+        "memory_max": 268435456,
+        "memory_peak": 136314880,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "webhook-fanout-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.011,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.08
+      },
+      "startup": null,
+      "workload": "webhook-fanout"
+    },
+    "ground_truth": "CPU_LIMIT_TOO_LOW",
+    "name": "webhook-fanout__throttle_light_stall"
+  },
+  {
+    "bundle": {
+      "_note": "KNOWN MISFIRE (scored as wrong, on purpose): a batch encoder with no latency SLO. It is throttled and it does not care -- the job finishes on time. The engine answers CPU_LIMIT_TOO_LOW at 0.72 and is penalised, which is the honest cost of not knowing whether a workload has an SLO",
+      "case": "video-encoder__harmless_throttle",
+      "cgroup": {
+        "memory_current": 943718400,
+        "memory_max": 2147483648,
+        "memory_peak": 996147200,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "video-encoder-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.001,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.09
+      },
+      "startup": null,
+      "workload": "video-encoder"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "video-encoder__harmless_throttle"
+  },
+  {
+    "bundle": {
+      "_note": "flat traffic, 3 -> 8 replicas: the cut raised utilisation-of-request, not load",
+      "case": "web-frontend__hpa_paradox",
+      "cgroup": {
+        "memory_current": 314572800,
+        "memory_max": 1073741824,
+        "memory_peak": 325058560,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": {
+        "replicas_after": 8,
+        "replicas_before": 3,
+        "target_utilization": 70,
+        "traffic_delta_pct": 1.0
+      },
+      "kubethrifty_changes": [
+        {
+          "commit": "sha255",
+          "container": "app",
+          "delta": {
+            "cpu": "1000m -> 250m"
+          },
+          "hours_before_incident": 2.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/255",
+          "recommendation_id": 1402
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "web-frontend-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.004,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.01
+      },
+      "startup": null,
+      "workload": "web-frontend"
+    },
+    "ground_truth": "HPA_COUPLING_STORM",
+    "name": "web-frontend__hpa_paradox"
+  },
+  {
+    "bundle": {
+      "_note": "traffic fell while replicas grew -- unambiguous coupling",
+      "case": "api-gateway__hpa_paradox_falling_traffic",
+      "cgroup": {
+        "memory_current": 262144000,
+        "memory_max": 536870912,
+        "memory_peak": 272629760,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": {
+        "replicas_after": 9,
+        "replicas_before": 4,
+        "target_utilization": 60,
+        "traffic_delta_pct": -2.0
+      },
+      "kubethrifty_changes": [
+        {
+          "commit": "sha261",
+          "container": "app",
+          "delta": {
+            "cpu": "800m -> 200m"
+          },
+          "hours_before_incident": 5.5,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/261",
+          "recommendation_id": 1440
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "api-gateway-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.01,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "api-gateway"
+    },
+    "ground_truth": "HPA_COUPLING_STORM",
+    "name": "api-gateway__hpa_paradox_falling_traffic"
+  },
+  {
+    "bundle": {
+      "_note": "a KEDA-owned HPA on CPU is subject to exactly the same paradox",
+      "case": "notification-api__hpa_paradox_keda",
+      "cgroup": {
+        "memory_current": 188743680,
+        "memory_max": 536870912,
+        "memory_peak": 199229440,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": {
+        "replicas_after": 6,
+        "replicas_before": 2,
+        "target_utilization": 75,
+        "traffic_delta_pct": 3.0
+      },
+      "kubethrifty_changes": [
+        {
+          "commit": "sha268",
+          "container": "app",
+          "delta": {
+            "cpu": "600m -> 150m"
+          },
+          "hours_before_incident": 1.5,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/268",
+          "recommendation_id": 1471
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "notification-api-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.006,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.02
+      },
+      "startup": null,
+      "workload": "notification-api"
+    },
+    "ground_truth": "HPA_COUPLING_STORM",
+    "name": "notification-api__hpa_paradox_keda"
+  },
+  {
+    "bundle": {
+      "_note": "a rehearsal asked for more than the node had: self-inflicted, and it must never hang",
+      "case": "ml-scorer__infeasible_resize",
+      "cgroup": {
+        "memory_current": 1048576000,
+        "memory_max": 2147483648,
+        "memory_peak": 1059061760,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {
+        "PodResizePending": {
+          "message": "node has insufficient cpu",
+          "reason": "Infeasible",
+          "status": "True"
+        }
+      },
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "container": "app",
+          "delta": {
+            "cpu": "500m -> 3000m"
+          },
+          "hours_before_incident": 0.1,
+          "kind": "rehearsal",
+          "recommendation_id": 1500
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": {
+        "cpu_millicores": 3760,
+        "memory_mib": 14580
+      },
+      "pod": "ml-scorer-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "ml-scorer"
+    },
+    "ground_truth": "RESIZE_INFEASIBLE_STUCK",
+    "name": "ml-scorer__infeasible_resize"
+  },
+  {
+    "bundle": {
+      "_note": "no attribution available: the resize was requested by hand",
+      "case": "video-transcoder__infeasible_mem",
+      "cgroup": {
+        "memory_current": 2097152000,
+        "memory_max": 4294967296,
+        "memory_peak": 2107637760,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {
+        "PodResizePending": {
+          "message": "node has insufficient memory",
+          "reason": "Infeasible",
+          "status": "True"
+        }
+      },
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": {
+        "cpu_millicores": 7600,
+        "memory_mib": 29000
+      },
+      "pod": "video-transcoder-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "video-transcoder"
+    },
+    "ground_truth": "RESIZE_INFEASIBLE_STUCK",
+    "name": "video-transcoder__infeasible_mem"
+  },
+  {
+    "bundle": {
+      "_note": "the clearest case: evicted while using 12% of its own limit. Every percentile-only tool sees a dead pod and recommends more memory, which is the wrong container entirely",
+      "case": "sidecar-proxy__evicted_innocent",
+      "cgroup": {
+        "memory_current": 67108864,
+        "memory_max": 536870912,
+        "memory_peak": 73400320,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {
+        "Evicted": {
+          "message": "The node was low on resource: memory",
+          "reason": "Evicted",
+          "status": "True"
+        }
+      },
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": {
+        "available_mib": 90,
+        "conditions": {
+          "MemoryPressure": "True"
+        },
+        "eviction_threshold_crossed": true
+      },
+      "node_allocatable": null,
+      "pod": "sidecar-proxy-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.09,
+        "throttle_ratio": 0.001
+      },
+      "startup": null,
+      "workload": "sidecar-proxy"
+    },
+    "ground_truth": "NODE_PRESSURE_EVICTION",
+    "name": "sidecar-proxy__evicted_innocent"
+  },
+  {
+    "bundle": {
+      "_note": "ours to explain but NOT ours to blame: the cut is attributed, yet the container was nowhere near its limit. The verdict names the PR and still says the node was the cause",
+      "case": "metrics-agent__evicted_after_our_cut",
+      "cgroup": {
+        "memory_current": 100663296,
+        "memory_max": 805306368,
+        "memory_peak": 115343360,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {
+        "Evicted": {
+          "message": "The node was low on resource: memory",
+          "reason": "Evicted",
+          "status": "True"
+        }
+      },
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha281",
+          "container": "app",
+          "delta": {
+            "memory": "1Gi -> 768Mi"
+          },
+          "hours_before_incident": 8.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/281",
+          "recommendation_id": 1520
+        }
+      ],
+      "namespace": "shop",
+      "node": {
+        "available_mib": 140,
+        "conditions": {
+          "MemoryPressure": "True"
+        }
+      },
+      "node_allocatable": null,
+      "pod": "metrics-agent-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.11,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "metrics-agent"
+    },
+    "ground_truth": "NODE_PRESSURE_EVICTION",
+    "name": "metrics-agent__evicted_after_our_cut"
+  },
+  {
+    "bundle": {
+      "_note": "PRECEDENCE TEST: the node is under pressure AND this container is pinned at its own limit. Node pressure is incidental here -- it really did outgrow its limit, so MEM_LIMIT_TOO_LOW must win over NODE_PRESSURE_EVICTION",
+      "case": "cache-warmer__own_limit_on_pressured_node",
+      "cgroup": {
+        "memory_current": 529530880,
+        "memory_max": 536870912,
+        "memory_peak": 535822336,
+        "oom_kill_total": 1
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 137,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": {
+        "available_mib": 180,
+        "conditions": {
+          "MemoryPressure": "True"
+        }
+      },
+      "node_allocatable": null,
+      "pod": "cache-warmer-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 1,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.18,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "cache-warmer"
+    },
+    "ground_truth": "MEM_LIMIT_TOO_LOW",
+    "name": "cache-warmer__own_limit_on_pressured_node"
+  },
+  {
+    "bundle": {
+      "_note": "the full causal chain: we cut CPU without matching the limit, which demoted Guaranteed to Burstable, which moved it ahead of its neighbours in the eviction queue. No resource number reveals this -- only the QoS transition does",
+      "case": "ledger-service__demoted_then_evicted",
+      "cgroup": {
+        "memory_current": 398458880,
+        "memory_max": 536870912,
+        "memory_peak": 408944640,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {
+        "Evicted": {
+          "message": "The node was low on resource: memory",
+          "reason": "Evicted",
+          "status": "True"
+        }
+      },
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha290",
+          "container": "app",
+          "delta": {
+            "cpu": "1000m -> 400m"
+          },
+          "hours_before_incident": 12.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/290",
+          "recommendation_id": 1560
+        }
+      ],
+      "namespace": "shop",
+      "node": {
+        "available_mib": 120,
+        "conditions": {
+          "MemoryPressure": "True"
+        }
+      },
+      "node_allocatable": null,
+      "pod": "ledger-service-7d9f",
+      "qos": {
+        "after": "Burstable",
+        "before": "Guaranteed"
+      },
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.003,
+        "psi_mem_full": 0.02,
+        "throttle_ratio": 0.01
+      },
+      "startup": null,
+      "workload": "ledger-service"
+    },
+    "ground_truth": "QOS_DEMOTION_EVICTION",
+    "name": "ledger-service__demoted_then_evicted"
+  },
+  {
+    "bundle": {
+      "_note": "demoted but still running: a LATENT risk, deliberately lower confidence. Reporting this at 0.95 would be crying wolf about something that has not happened",
+      "case": "billing-worker__demoted_not_yet_evicted",
+      "cgroup": {
+        "memory_current": 209715200,
+        "memory_max": 536870912,
+        "memory_peak": 220200960,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha293",
+          "container": "app",
+          "delta": {
+            "memory": "512Mi -> 400Mi"
+          },
+          "hours_before_incident": 4.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/293",
+          "recommendation_id": 1571
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "billing-worker-7d9f",
+      "qos": {
+        "after": "Burstable",
+        "before": "Guaranteed"
+      },
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.001,
+        "psi_mem_full": 0.01,
+        "throttle_ratio": 0.005
+      },
+      "startup": null,
+      "workload": "billing-worker"
+    },
+    "ground_truth": "QOS_DEMOTION_EVICTION",
+    "name": "billing-worker__demoted_not_yet_evicted"
+  },
+  {
+    "bundle": {
+      "_note": "a JVM JITs for 90 seconds and needs several times its steady-state CPU to do it. Steady state is comfortable at 0.4% throttling, so a percentile sizer sees nothing wrong -- the startup burst is a rounding error across a week of samples",
+      "case": "jvm-pricing__startup_starved",
+      "cgroup": {
+        "memory_current": 734003200,
+        "memory_max": 1073741824,
+        "memory_peak": 796917760,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha301",
+          "container": "app",
+          "delta": {
+            "cpu": "2000m -> 300m"
+          },
+          "hours_before_incident": 6.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/301",
+          "recommendation_id": 1610
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "jvm-pricing-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.002,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.004
+      },
+      "startup": {
+        "duration_seconds": 95,
+        "probe_failures": 4,
+        "restarts": 3,
+        "throttle_ratio": 0.71
+      },
+      "workload": "jvm-pricing"
+    },
+    "ground_truth": "STARTUP_CPU_STARVATION",
+    "name": "jvm-pricing__startup_starved"
+  },
+  {
+    "bundle": {
+      "_note": "same shape, no attribution: the request was always this low",
+      "case": "node-ssr__startup_starved",
+      "cgroup": {
+        "memory_current": 314572800,
+        "memory_max": 536870912,
+        "memory_peak": 356515840,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "node-ssr-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.004,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.01
+      },
+      "startup": {
+        "duration_seconds": 40,
+        "probe_failures": 2,
+        "restarts": 1,
+        "throttle_ratio": 0.44
+      },
+      "workload": "node-ssr"
+    },
+    "ground_truth": "STARTUP_CPU_STARVATION",
+    "name": "node-ssr__startup_starved"
+  },
+  {
+    "bundle": {
+      "_note": "DISCRIMINATOR TEST: throttled at startup AND in steady state. That is not a startup-specific problem, it is a limit that is simply too low, so CPU_LIMIT_TOO_LOW must outrank STARTUP_CPU_STARVATION",
+      "case": "stream-joiner__throttled_throughout",
+      "cgroup": {
+        "memory_current": 419430400,
+        "memory_max": 1073741824,
+        "memory_peak": 440401920,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "stream-joiner-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.09,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.28
+      },
+      "startup": {
+        "duration_seconds": 25,
+        "probe_failures": 1,
+        "restarts": 1,
+        "throttle_ratio": 0.33
+      },
+      "workload": "stream-joiner"
+    },
+    "ground_truth": "CPU_LIMIT_TOO_LOW",
+    "name": "stream-joiner__throttled_throughout"
+  },
+  {
+    "bundle": {
+      "_note": "AMBIGUOUS, scored as wrong on purpose: a nightly aggregation stalls on reclaim and finishes on time anyway. The engine answers MEM_PRESSURE_NO_KILL at 0.62 -- and 0.62 is the right number precisely BECAUSE cases like this exist. Nothing in the evidence says whether a stall matters to this workload",
+      "case": "analytics-batch__stall_no_slo",
+      "cgroup": {
+        "memory_current": 734003200,
+        "memory_max": 1073741824,
+        "memory_peak": 754974720,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "analytics-batch-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.08,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "analytics-batch"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "analytics-batch__stall_no_slo"
+  },
+  {
+    "bundle": {
+      "_note": "AMBIGUOUS, scored as wrong on purpose: the team accepted this demotion deliberately -- an edge cache is cheap to lose and cheaper to run Burstable. The engine flags it at 0.58 as a latent risk, which is a reasonable thing to say and sometimes unwanted. This is what a 0.58 is FOR",
+      "case": "edge-cache__demoted_by_design",
+      "cgroup": {
+        "memory_current": 157286400,
+        "memory_max": 536870912,
+        "memory_peak": 167772160,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha305",
+          "container": "app",
+          "delta": {
+            "cpu": "500m -> 200m"
+          },
+          "hours_before_incident": 9.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/305",
+          "recommendation_id": 1640
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "edge-cache-7d9f",
+      "qos": {
+        "after": "Burstable",
+        "before": "Guaranteed"
+      },
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.001,
+        "psi_mem_full": 0.01,
+        "throttle_ratio": 0.004
+      },
+      "startup": null,
+      "workload": "edge-cache"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "edge-cache__demoted_by_design"
+  },
+  {
+    "bundle": {
+      "_note": "RED HERRING: heavily throttled during startup and it came up fine anyway. Throttling without harm is not an incident -- the engine must not manufacture one from a metric",
+      "case": "batch-loader__slow_start_but_healthy",
+      "cgroup": {
+        "memory_current": 262144000,
+        "memory_max": 1073741824,
+        "memory_peak": 272629760,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "batch-loader-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.001,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.003
+      },
+      "startup": {
+        "duration_seconds": 60,
+        "probe_failures": 0,
+        "restarts": 0,
+        "throttle_ratio": 0.38
+      },
+      "workload": "batch-loader"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "batch-loader__slow_start_but_healthy"
+  },
+  {
+    "bundle": {
+      "_note": "RED HERRING: broken image tag, healthy resources",
+      "case": "notify-svc__imagepull",
+      "cgroup": {
+        "memory_current": 52428800,
+        "memory_max": 268435456,
+        "memory_peak": 62914560,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {
+        "ContainersReady": {
+          "message": "manifest unknown",
+          "reason": "ImagePullBackOff",
+          "status": "False"
+        }
+      },
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "notify-svc-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "notify-svc"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "notify-svc__imagepull"
+  },
+  {
+    "bundle": {
+      "_note": "RED HERRING and the hardest one: a DNS failure shortly after one of OUR changes. Correlation is not causation and the engine must not claim it",
+      "case": "auth-svc__dns_failure",
+      "cgroup": {
+        "memory_current": 125829120,
+        "memory_max": 536870912,
+        "memory_peak": 136314880,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 1,
+      "hpa": null,
+      "kubethrifty_changes": [
+        {
+          "commit": "sha270",
+          "container": "app",
+          "delta": {
+            "cpu": "500m -> 300m"
+          },
+          "hours_before_incident": 10.0,
+          "kind": "merged_pr",
+          "pr_url": "https://github.com/OWNER/REPO/pull/270",
+          "recommendation_id": 1490
+        }
+      ],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "auth-svc-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.001
+      },
+      "startup": null,
+      "workload": "auth-svc"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "auth-svc__dns_failure"
+  },
+  {
+    "bundle": {
+      "_note": "RED HERRING: the app exits 2 on a bad config file. Resources are irrelevant",
+      "case": "cron-cleanup__crashloop_bad_config",
+      "cgroup": {
+        "memory_current": 31457280,
+        "memory_max": 268435456,
+        "memory_peak": 36700160,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 2,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "cron-cleanup-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "cron-cleanup"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "cron-cleanup__crashloop_bad_config"
+  },
+  {
+    "bundle": {
+      "_note": "RED HERRING: nothing is wrong at all",
+      "case": "static-site__healthy",
+      "cgroup": {
+        "memory_current": 41943040,
+        "memory_max": 268435456,
+        "memory_peak": 47185920,
+        "oom_kill_total": 0
+      },
+      "cluster": "demo",
+      "collector_versions": {
+        "cgroup_truth": "1.0.0",
+        "engine": "1.1.0"
+      },
+      "conditions": {},
+      "container": "app",
+      "exit_code": 0,
+      "hpa": null,
+      "kubethrifty_changes": [],
+      "namespace": "shop",
+      "node": null,
+      "node_allocatable": null,
+      "pod": "static-site-7d9f",
+      "qos": null,
+      "schema": "kubethrifty.detective/v1",
+      "signals": {
+        "oom_kills": 0,
+        "psi_cpu_full": 0.0,
+        "psi_mem_full": 0.0,
+        "throttle_ratio": 0.0
+      },
+      "startup": null,
+      "workload": "static-site"
+    },
+    "ground_truth": "NO_VERDICT",
+    "name": "static-site__healthy"
+  }
+]

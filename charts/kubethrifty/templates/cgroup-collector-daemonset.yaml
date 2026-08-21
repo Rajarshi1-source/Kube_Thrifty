@@ -1,0 +1,112 @@
+{{- if .Values.cgroupCollector.enabled }}
+# ================================================================================================
+# The cgroup-truth DaemonSet.
+#
+# This pod mounts a host path, which is the most privileged thing KubeThrifty does anywhere. The
+# security context below is therefore deliberately maximal, and every field is load-bearing:
+#
+#   readOnly: true on the mount        The collector only ever reads. Even if the process were
+#                                      compromised, it cannot write to the host cgroup tree -- so it
+#                                      cannot change any container's limits.
+#   readOnlyRootFilesystem: true       No writable layer at all.
+#   drop: [ALL]                        No capabilities. Reading /sys/fs/cgroup needs none.
+#   runAsNonRoot + runAsUser 65532     The cgroup files are world-readable; root is unnecessary.
+#   allowPrivilegeEscalation: false    No setuid path out of the sandbox.
+#   seccompProfile: RuntimeDefault     Syscall filtering on by default.
+#   hostPID / hostNetwork: false       Neither is needed. A collector that reads files does not need
+#                                      the host's process or network namespace, and taking them
+#                                      would widen the blast radius for no benefit.
+#
+# NOTE the absence of `privileged: true`. Plenty of node exporters ask for it out of habit; this one
+# demonstrably does not need it.
+# ================================================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-cgroup-collector
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cgroup-collector
+spec:
+  selector:
+    matchLabels:
+      {{- include "kubethrifty.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cgroup-collector
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # One node at a time. The collector is the evidence source; rolling it everywhere at once
+      # would blank the PSI series cluster-wide, and an empty PSI series downgrades the evidence
+      # tier for every recommendation computed during the gap.
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "kubethrifty.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cgroup-collector
+      annotations:
+        # Rolls the pods when the collector config changes.
+        checksum/config: {{ .Values.cgroupCollector | toYaml | sha256sum }}
+    spec:
+      # No ServiceAccount token is mounted: the collector talks to the KERNEL, not to the API
+      # server. It joins its samples to pods by cgroup path, so it needs no cluster read access at
+      # all -- and a pod with no token cannot be used to pivot to the API.
+      automountServiceAccountToken: false
+      serviceAccountName: {{ include "kubethrifty.fullname" . }}-cgroup-collector
+      priorityClassName: {{ .Values.cgroupCollector.priorityClassName | default "system-node-critical" }}
+      # Tolerate everything. Missing the collector on a tainted node means every workload there
+      # silently drops to the `partial` evidence tier, and nothing would report why.
+      tolerations:
+        - operator: Exists
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: "{{ .Values.cgroupCollector.image.repository }}:{{ .Values.cgroupCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.cgroupCollector.image.pullPolicy }}
+          args:
+            - --port={{ .Values.cgroupCollector.port }}
+            - --cgroup-root=/host/sys/fs/cgroup
+          env:
+            # Downward API, so each sample is labelled with the node it came from.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.cgroupCollector.port }}
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: cgroup
+              mountPath: /host/sys/fs/cgroup
+              # THE most important line in this file.
+              readOnly: true
+          resources:
+            {{- toYaml .Values.cgroupCollector.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          # No readinessProbe on /metrics beyond liveness: a collector that reads nothing still
+          # serves kubethrifty_cgroup_scrape_targets=0, and that metric is how a silent failure gets
+          # noticed. Marking the pod unready would hide the very signal that reports the problem.
+      volumes:
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+{{- end }}

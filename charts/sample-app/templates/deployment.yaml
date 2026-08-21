@@ -1,0 +1,91 @@
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: sample-app
+    kubethrifty.io/demand-profile: {{ $svc.profile }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/part-of: sample-app
+        kubethrifty.io/demand-profile: {{ $svc.profile }}
+      annotations:
+        {{- if $svc.runtimeHint }}
+        # Tells the sizer to apply MEM_HEADROOM_FOR_GC: a GC'd runtime's RSS lags real demand.
+        kubethrifty.io/runtime: {{ $svc.runtimeHint | quote }}
+        {{- end }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      # Spread replicas across nodes so the bin-packer has something real to consolidate and so a
+      # rehearsal on one replica cannot take out the whole service.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}
+      containers:
+        - name: app
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SERVICE_NAME
+              value: {{ $name | quote }}
+            - name: WORKLOAD_PROFILE
+              value: {{ $svc.profile | quote }}
+            - name: CPU_TARGET_MILLICORES
+              value: {{ $svc.cpuTarget | quote }}
+            - name: MEM_TARGET_MIB
+              value: {{ $svc.memTarget | quote }}
+            {{- if $svc.peakMultiplier }}
+            - name: PEAK_MULTIPLIER
+              value: {{ $svc.peakMultiplier | quote }}
+            {{- end }}
+            {{- if $svc.spikePeriodSeconds }}
+            - name: SPIKE_PERIOD_S
+              value: {{ $svc.spikePeriodSeconds | quote }}
+            {{- end }}
+            {{- if $svc.spikeDurationSeconds }}
+            - name: SPIKE_DURATION_S
+              value: {{ $svc.spikeDurationSeconds | quote }}
+            {{- end }}
+          # DELIBERATELY over-provisioned. See values.yaml -- this gap is what KubeThrifty measures.
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          volumeMounts:
+            # readOnlyRootFilesystem is on, so anything that needs to write gets an explicit mount.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -1,0 +1,131 @@
+name: Policy
+
+# Shift-left guards. These run on every pull request and fail it, so the rules the project claims to
+# hold are actually enforced rather than merely documented.
+#
+#   1. The waste gate: a PR must not INTRODUCE an over-provisioned workload.
+#   2. The pinning guard: no floating image tag anywhere.
+#   3. The safety guard: the mutating RBAC surface must stay exactly `patch` on `pods/resize`.
+#   4. The honesty guard: no `?? 0` / `or 0` coercion of a missing signal.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  waste-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "4.2.4"
+
+      - name: Render every chart
+        run: |
+          helm template kubethrifty charts/kubethrifty > /tmp/rendered.yaml
+          helm template sample-app charts/sample-app >> /tmp/rendered.yaml
+
+      # --- THE SHIFT-LEFT WASTE GATE -----------------------------------------------------------
+      # Refuses a manifest that is obviously over-provisioned before it ever reaches a cluster. This
+      # is the product's own advice, applied to the product's own charts.
+      #
+      # charts/sample-app is EXEMPT: those workloads are deliberately over-provisioned, because they
+      # are the demo material this tool exists to right-size. Exempting them explicitly is honest;
+      # silently skipping the check would not be.
+      - name: "Gate: no over-provisioned workloads in the platform chart"
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys, re
+
+          text = open('/tmp/rendered.yaml').read()
+          docs = text.split('\n---\n')
+
+          def cpu_to_cores(v):
+              v = str(v).strip().strip('"\'')
+              if v.endswith('m'):
+                  return float(v[:-1]) / 1000
+              return float(v)
+
+          def mem_to_mib(v):
+              v = str(v).strip().strip('"\'')
+              for suf, mult in (('Gi', 1024), ('Mi', 1), ('Ki', 1/1024), ('G', 953.7), ('M', 0.9537)):
+                  if v.endswith(suf):
+                      return float(v[:-len(suf)]) * mult
+              return float(v) / (1024 * 1024)
+
+          failures = []
+          for doc in docs:
+              if 'kubethrifty.io/demo-overprovisioned' in doc:
+                  continue
+              # Crude but sufficient: pair each requests/limits block within a container.
+              for m in re.finditer(
+                  r'resources:\s*\n(?:\s+requests:\s*\n((?:\s+\w+:\s*\S+\n)+))?'
+                  r'(?:\s+limits:\s*\n((?:\s+\w+:\s*\S+\n)+))?', doc):
+                  req_block, lim_block = m.group(1) or '', m.group(2) or ''
+                  req = dict(re.findall(r'(\w+):\s*(\S+)', req_block))
+                  lim = dict(re.findall(r'(\w+):\s*(\S+)', lim_block))
+
+                  # MEMORY: limit must equal request. Over-limit on memory is an OOMKill, which is
+                  # fatal rather than merely slow, so there is no reason to allow burst headroom.
+                  if 'memory' in req and 'memory' in lim:
+                      r_mib, l_mib = mem_to_mib(req['memory']), mem_to_mib(lim['memory'])
+                      if abs(r_mib - l_mib) > 0.5:
+                          failures.append(
+                              f"memory limit ({lim['memory']}) != request ({req['memory']}). "
+                              f"Memory must be sized limit == request.")
+
+                  # CPU: a limit more than 4x the request is a burst allowance so wide that the
+                  # request has stopped describing the workload at all.
+                  if 'cpu' in req and 'cpu' in lim:
+                      r_c, l_c = cpu_to_cores(req['cpu']), cpu_to_cores(lim['cpu'])
+                      if r_c > 0 and l_c / r_c > 4.0:
+                          failures.append(
+                              f"cpu limit ({lim['cpu']}) is {l_c / r_c:.1f}x the request "
+                              f"({req['cpu']}); over 4x the request no longer describes the workload.")
+
+          if failures:
+              print("FAIL: the waste gate rejected this change:")
+              for f in sorted(set(failures)):
+                  print(f"  - {f}")
+              sys.exit(1)
+          print("waste gate passed")
+          PY
+
+  # ==============================================================================================
+  # The pinning, blast-radius and null-vs-zero guards.
+  #
+  # These call `scripts/check_policy.py`, the SAME implementation a developer runs locally. Keeping
+  # one implementation matters: a guard whose CI version differs from the local one gets debugged by
+  # trial and error through the PR queue, and the two copies drift until only one is real.
+  #
+  #     python scripts/check_policy.py
+  #     python scripts/check_policy.py --guard rbac
+  # ==============================================================================================
+  guards:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "4.2.4"
+
+      - name: Install the guard's own dependency
+        run: python -m pip install PyYAML==6.0.3
+
+      # Fails on:
+      #   - any floating image tag (`:latest`, or an untagged image) in a manifest or Dockerfile
+      #   - any mutating RBAC verb beyond `patch` on `pods/resize`
+      #   - any coercion of a missing signal to 0 without a justified `null-guard-ok:` marker
+      - name: Run the policy guards
+        run: python scripts/check_policy.py

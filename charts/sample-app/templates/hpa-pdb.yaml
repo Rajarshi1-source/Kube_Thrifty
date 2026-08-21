@@ -1,0 +1,53 @@
+{{- range $name, $svc := .Values.services }}
+{{- if and $svc.hpa $svc.hpa.enabled }}
+---
+# The HPA-collision trap, on purpose.
+#
+# This HPA targets CPU utilisation as a percentage OF THE REQUEST. Lower the request and
+# utilisation-of-request rises for identical traffic, so the HPA scales out and the "saving"
+# turns into a larger bill. coupling/detect.py has to find this, and coupling/simulate.py has to
+# either co-change the target in the SAME PR or refuse the recommendation outright. Shipping the
+# resource change without the target change is the outage.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: sample-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicas: {{ $svc.hpa.minReplicas }}
+  maxReplicas: {{ $svc.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $svc.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- if and $svc.pdb $svc.pdb.enabled }}
+---
+# The rehearsal preflight requires a PDB that tolerates exactly one disruption before it will
+# experiment on a live pod. Without one, `replicas >= 2` alone is not evidence that removing a
+# pod's capacity for 30 minutes is safe.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: sample-app
+spec:
+  minAvailable: {{ $svc.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,196 @@
+# KubeThrifty local development stack.
+#
+# EVERY tag is pinned to an exact patch. `:latest` does not appear in this file and must never be
+# added to it -- a right-sizing tool whose own dependency versions drift has no standing to lecture
+# anyone about pinning. `policy.yml` greps this file in CI and fails the build on an unpinned image.
+#
+# This stack is the analyser's development harness. It is NOT the deployment path: production runs
+# from charts/kubethrifty via `helm upgrade --install`, and durable resource changes reach a cluster
+# only through a merged Git PR.
+#
+#   docker compose up -d timescaledb valkey    # data layer only -- enough for the eval gates
+#   docker compose up -d                        # full stack including Prometheus + Grafana
+#
+# Host port bindings are overridable (KT_DB_PORT, KT_REDIS_PORT, KT_PROMETHEUS_PORT,
+# KT_GRAFANA_PORT, KT_DASHBOARD_PORT) because a developer machine frequently already runs a native
+# PostgreSQL or Redis. Container-side ports are always canonical.
+
+name: kubethrifty
+
+services:
+  # --------------------------------------------------------------------------------------------
+  # TimescaleDB. The `-all` variant is REQUIRED, not a preference: it is what ships the Timescale
+  # Toolkit, and migrations/001_core.sql uses percentile_agg / approx_percentile in the
+  # hourly_pod_stats continuous aggregate. The plain image starts fine and then fails the
+  # migration with "function percentile_agg does not exist".
+  # --------------------------------------------------------------------------------------------
+  timescaledb:
+    image: timescale/timescaledb-ha:pg18.4-ts2.29.2-all
+    container_name: kubethrifty-timescaledb
+    environment:
+      POSTGRES_DB: kubethrifty
+      POSTGRES_USER: kubethrifty
+      # Local dev only. In-cluster this comes from a Kubernetes Secret, never from a chart value.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kubethrifty_dev_only}
+      # Deterministic ordering for anything that sorts text, so digests do not vary by locale.
+      POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    ports:
+      # Host side defaults to 5433, NOT 5432. A developer machine very often already runs a native
+      # PostgreSQL on 5432, and binding it here fails with a bind-permission error that reads like a
+      # Docker fault rather than the port clash it actually is. The container side stays canonical,
+      # so everything on the compose network still talks to `timescaledb:5432`.
+      - "127.0.0.1:${KT_DB_PORT:-5433}:5432"
+    volumes:
+      - timescale-data:/home/postgres/pgdata
+      # Mounted read-only and applied in filename order on first init.
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kubethrifty -d kubethrifty"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------------------------
+  # Valkey: cache-aside store, the analysis-jobs stream, and the SET NX run lock.
+  # appendonly yes because the stream carries queued analysis jobs -- losing them on restart means
+  # a silently skipped run, which is worse than a visibly failed one.
+  # --------------------------------------------------------------------------------------------
+  valkey:
+    image: valkey/valkey:9.1-alpine3.24
+    container_name: kubethrifty-valkey
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "512mb"
+      # Cache entries may be evicted; stream entries are trimmed explicitly by the producer.
+      - --maxmemory-policy
+      - "allkeys-lru"
+    ports:
+      # Overridable for the same reason as the database port: a local Redis is a common squatter.
+      - "127.0.0.1:${KT_REDIS_PORT:-6379}:6379"
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------------------------
+  # Prometheus 3.x. In the kind cluster this is installed by kube-prometheus-stack instead; this
+  # instance exists so the analyser can be developed against a real PromQL endpoint.
+  # --------------------------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: kubethrifty-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 14d matches the cluster retention. MIN_DATA_POINTS is 168 hourly samples (7d), so a
+      # shorter window would silently push every workload to needs_review.
+      - --storage.tsdb.retention.time=14d
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:${KT_PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./k8s/prometheus/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------------------------
+  # Grafana 13.0.x for the operator-facing dashboards. The product UI is the Next.js dashboard;
+  # Grafana is for the cluster-health view that sits behind it.
+  # --------------------------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:13.0.7
+    container_name: kubethrifty-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-kubethrifty_dev_only}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    ports:
+      - "127.0.0.1:${KT_GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------------------------
+  # The analyser. Runs on demand, not as a daemon: in-cluster it scales 0..N off the Redis stream
+  # via KEDA, and locally you invoke it explicitly:
+  #     docker compose run --rm analyser --window 7d
+  # --------------------------------------------------------------------------------------------
+  analyser:
+    build:
+      # Repo root, because the Dockerfile needs config/instances.json as well as analyser/src.
+      context: .
+      dockerfile: analyser/Dockerfile
+    image: kubethrifty-analyser:dev
+    container_name: kubethrifty-analyser
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      DATABASE_URL: postgresql+psycopg://kubethrifty:${POSTGRES_PASSWORD:-kubethrifty_dev_only}@timescaledb:5432/kubethrifty
+      REDIS_URL: redis://valkey:6379/0
+      INSTANCE_CATALOGUE: /app/config/instances.json
+      # Absent by default. Without it the analyser computes and persists but opens no PR, which is
+      # the correct default for a dev box.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      # Rehearsals are opt-in and need a real cluster. Off here.
+      REHEARSAL_ENABLED: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    profiles: ["analyser"]
+    restart: "no"
+
+  # --------------------------------------------------------------------------------------------
+  # The dashboard. Holds NO cluster credentials and exposes no write endpoints; its only write is
+  # XADD onto the analysis-jobs stream.
+  # --------------------------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: kubethrifty-dashboard:dev
+    container_name: kubethrifty-dashboard
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://kubethrifty:${POSTGRES_PASSWORD:-kubethrifty_dev_only}@timescaledb:5432/kubethrifty
+      REDIS_URL: redis://valkey:6379/0
+      PROMETHEUS_URL: http://prometheus:9090
+    ports:
+      - "127.0.0.1:${KT_DASHBOARD_PORT:-3000}:3000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    profiles: ["dashboard"]
+    restart: unless-stopped
+
+volumes:
+  timescale-data:
+  valkey-data:
+  prometheus-data:
+  grafana-data:

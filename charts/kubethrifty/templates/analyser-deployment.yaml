@@ -1,0 +1,160 @@
+{{- if .Values.analyser.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-analyser
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyser
+spec:
+  # No `replicas` here on purpose: KEDA owns it. Setting it would make Helm and the ScaledObject
+  # fight, with every `helm upgrade` scaling the analyser back up from zero.
+  selector:
+    matchLabels:
+      {{- include "kubethrifty.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: analyser
+  template:
+    metadata:
+      labels:
+        {{- include "kubethrifty.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: analyser
+    spec:
+      serviceAccountName: {{ include "kubethrifty.fullname" . }}-analyser
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: analyser
+          image: "{{ .Values.analyser.image.repository }}:{{ .Values.analyser.image.tag }}"
+          imagePullPolicy: {{ .Values.analyser.image.pullPolicy }}
+          # The worker drains the stream and exits so KEDA can scale back to zero.
+          command: ["python", "-m", "src.worker"]
+          args: ["--once", "--window", {{ .Values.analyser.window | quote }}]
+          env:
+            - name: CLUSTER_NAME
+              value: {{ .Values.clusterName | default "kubethrifty-demo" | quote }}
+            - name: PROMETHEUS_URL
+              value: {{ .Values.prometheus.url | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubethrifty.fullname" . }}-db
+                  key: url
+            - name: REDIS_URL
+              value: "redis://{{ include "kubethrifty.fullname" . }}-valkey:6379/0"
+            # KEDA's redis-streams scaler reads host:port, not a URL.
+            - name: REDIS_ADDRESS
+              value: "{{ include "kubethrifty.fullname" . }}-valkey:6379"
+            - name: INSTANCE_CATALOGUE
+              value: /app/config/instances.json
+            - name: AUTO_PR
+              value: {{ .Values.analyser.autoPr | quote }}
+            - name: REHEARSAL_ENABLED
+              value: {{ .Values.analyser.rehearsalEnabled | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | default "INFO" | quote }}
+            {{- if .Values.github.existingSecret }}
+            # Read from a Secret, never a chart value: a token in values.yaml appears in
+            # `helm get values` and in every CI log that renders the chart.
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: token
+            - name: GITHUB_REPO
+              value: {{ .Values.github.repo | quote }}
+            - name: GITHUB_BASE_BRANCH
+              value: {{ .Values.github.baseBranch | quote }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.analyser.resources | nindent 12 }}
+          volumeMounts:
+            # pandas and numpy write temporary files, and the root filesystem is read-only.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+{{- end }}
+{{- if and .Values.analyser.enabled .Values.analyser.enqueuer.enabled }}
+---
+# ================================================================================================
+# The enqueuer CronJob.
+#
+# It pushes a job onto the stream rather than running the analysis itself. Running the analysis here
+# would need the full analyser configuration, its database credentials and its cluster RBAC -- and
+# would bypass the SET NX concurrency guard entirely, because two overlapping schedules would both
+# just start working.
+#
+# This pod needs exactly one credential: the Valkey address.
+# ================================================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-enqueuer
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: enqueuer
+spec:
+  schedule: {{ .Values.analyser.enqueuer.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            {{- include "kubethrifty.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: enqueuer
+        spec:
+          restartPolicy: Never
+          # NO ServiceAccount token. The enqueuer talks to Valkey and nothing else, so it needs no
+          # cluster access whatsoever.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: enqueuer
+              image: "{{ .Values.analyser.image.repository }}:{{ .Values.analyser.image.tag }}"
+              imagePullPolicy: {{ .Values.analyser.image.pullPolicy }}
+              command: ["python", "-m", "src.enqueue"]
+              args:
+                - --window={{ .Values.analyser.window }}
+                - --trigger=schedule
+              env:
+                - name: CLUSTER_NAME
+                  value: {{ .Values.clusterName | default "kubethrifty-demo" | quote }}
+                - name: REDIS_URL
+                  value: "redis://{{ include "kubethrifty.fullname" . }}-valkey:6379/0"
+                - name: LOG_LEVEL
+                  value: {{ .Values.logLevel | default "INFO" | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+{{- end }}

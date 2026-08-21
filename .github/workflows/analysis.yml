@@ -1,0 +1,118 @@
+name: Scheduled analysis
+
+# The self-referential demo: KubeThrifty right-sizes ITS OWN pods and opens a pull request against
+# its own values.yaml.
+#
+# This is the strongest available demonstration that the tool is trusted by the people who wrote it.
+# A cost tool whose authors will not point it at their own deployment is telling you something.
+#
+# The workflow ENQUEUES a job; it does not run the analysis. The analyser sits at
+# `minReplicaCount: 0` behind a KEDA consumer-group scaler, so the job is what wakes it. Running the
+# analysis from a GitHub runner instead would need cluster RBAC and database credentials here, and
+# would bypass the SET NX concurrency guard entirely.
+
+on:
+  schedule:
+    # Every 6 hours. Matches the in-cluster enqueuer CronJob, and exists so the schedule survives a
+    # cluster rebuild -- a CronJob disappears with its namespace.
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      window:
+        description: Lookback window
+        required: false
+        default: 7d
+      auto_pr:
+        description: Open a pull request with the results
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never overlapping. The analyser's own lock would refuse a second run anyway, but queueing them
+  # here just produces a job that wakes a pod to be told no.
+  group: scheduled-analysis
+  cancel-in-progress: false
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "$KUBECONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Enqueue an analysis run
+        env:
+          WINDOW: ${{ inputs.window || '7d' }}
+          AUTO_PR: ${{ inputs.auto_pr || 'false' }}
+        run: |
+          set -euo pipefail
+          # A one-shot Job rather than `kubectl exec` into the analyser: at minReplicaCount 0 there
+          # is usually no analyser pod to exec into.
+          job="kubethrifty-enqueue-$(date +%s)"
+          kubectl -n kubethrifty create job "$job" \
+            --from=cronjob/kubethrifty-enqueuer
+          kubectl -n kubethrifty wait --for=condition=complete "job/$job" --timeout=3m
+          kubectl -n kubethrifty logs "job/$job"
+
+      - name: Wait for the run to finish
+        run: |
+          set -euo pipefail
+          # KEDA needs a polling interval to notice the lag, then the analyser needs to cold-start.
+          echo "waiting for KEDA to scale the analyser up..."
+          for i in $(seq 1 40); do
+            replicas="$(kubectl -n kubethrifty get deploy kubethrifty-analyser \
+              -o jsonpath='{.status.replicas}' 2>/dev/null || echo 0)"
+            if [ "${replicas:-0}" -gt 0 ]; then
+              echo "analyser scaled up after ${i} poll(s)"
+              break
+            fi
+            sleep 15
+          done
+
+          # Back to zero means the run finished and KEDA scaled it down. That is SUCCESS, not a
+          # failure -- scale-to-zero is the analyser's healthy steady state.
+          echo "waiting for the run to complete and scale back to zero..."
+          for i in $(seq 1 60); do
+            replicas="$(kubectl -n kubethrifty get deploy kubethrifty-analyser \
+              -o jsonpath='{.status.replicas}' 2>/dev/null || echo 0)"
+            if [ "${replicas:-0}" -eq 0 ]; then
+              echo "run complete; analyser back at zero"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "analyser did not scale back down within 15m; check its logs"
+          kubectl -n kubethrifty logs -l app.kubernetes.io/component=analyser --tail=100 || true
+          exit 1
+
+      - name: Report the outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          # A `degraded` run is a first-class outcome: it completed with a signal missing, so its
+          # recommendations carry a lower evidence tier. Surfaced rather than swallowed.
+          kubectl -n kubethrifty exec deploy/kubethrifty-dashboard -- \
+            node -e '
+              fetch("http://localhost:3000/api/analysis/history?limit=1")
+                .then(r => r.json())
+                .then(d => {
+                  const run = d.items?.[0];
+                  if (!run) { console.log("no runs recorded"); return; }
+                  console.log(`run ${run.runId}: ${run.status}`);
+                  console.log(`  workloads: ${run.workloadsSeen}, recommendations: ${run.recommendationsMade}`);
+                  if (run.degradedReason) console.log(`  degraded: ${run.degradedReason}`);
+                  if (run.prUrl) console.log(`  pull request: ${run.prUrl}`);
+                })
+                .catch(e => { console.log("could not read run history:", e.message); });
+            ' || echo "dashboard unreachable; skipping the summary"

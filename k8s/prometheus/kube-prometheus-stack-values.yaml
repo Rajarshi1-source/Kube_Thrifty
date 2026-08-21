@@ -1,0 +1,128 @@
+# kube-prometheus-stack values for the KubeThrifty demo cluster.
+#
+#   helm install monitoring oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
+#     --version 88.2.1 --namespace monitoring --create-namespace \
+#     -f k8s/prometheus/kube-prometheus-stack-values.yaml
+#
+# Pin --version explicitly. An unpinned chart install is the same class of mistake as `:latest`.
+#
+# Everything below that looks like a detail is load-bearing for the analyser. If any of it is wrong
+# the product does not fail loudly -- it quietly produces recommendations from a partial signal set,
+# which is precisely the failure mode KubeThrifty exists to prevent.
+
+fullnameOverride: monitoring
+
+# --------------------------------------------------------------------------------------------
+# kubelet: the single most important block in this file.
+#
+# cAdvisor is where container_cpu_usage_seconds_total, container_memory_working_set_bytes,
+# container_cpu_cfs_periods_total, container_cpu_cfs_throttled_periods_total,
+# container_oom_events_total AND container_pressure_* (PSI, GA in 1.36) all come from. Without
+# this ServiceMonitor there is no usage data at all and every recommendation is needs_review.
+# --------------------------------------------------------------------------------------------
+kubelet:
+  enabled: true
+  namespace: kube-system
+  serviceMonitor:
+    # /metrics/cadvisor -- per-container usage, throttling, OOM counters and PSI.
+    cAdvisor: true
+    # /metrics/resource -- the kubelet summary API; cheap and useful as a cross-check.
+    resource: true
+    probes: true
+    # honorLabels MUST be true. The kubelet already sets `pod`, `namespace` and `container`;
+    # without this, Prometheus overwrites them with the scrape target's own labels and every
+    # series collapses onto the kubelet instead of the workload. Silent, total data corruption.
+    honorLabels: true
+    interval: 15s
+    # cAdvisor emits a lot of series that cost cardinality and answer no question we ask.
+    cAdvisorMetricRelabelings:
+      - action: drop
+        regex: container_(network_tcp_usage_total|network_udp_usage_total|tasks_state|cpu_load_average_10s)
+        sourceLabels: [__name__]
+      # Drop the per-container filesystem series; the sizer never looks at disk.
+      - action: drop
+        regex: container_fs_(reads|writes)_bytes_total
+        sourceLabels: [__name__]
+      # Keep PSI explicitly out of every drop rule above. Stated as a comment because a future
+      # "reduce cardinality" pass is exactly how container_pressure_* gets lost by accident.
+
+prometheus:
+  prometheusSpec:
+    # 15s is not cosmetic: rate() over container_cpu_cfs_throttled_periods_total needs several
+    # samples inside the shortest window the analyser asks about, and the rehearsal computes a
+    # throttle ratio over a 300s baseline.
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    # MIN_DATA_POINTS is 168 hourly samples (7 days). 14d retention gives the forecaster its
+    # MIN_POINTS = 24*14 and leaves room for a before/after verification window.
+    retention: 14d
+    retentionSize: "8GB"
+
+    # Discover ServiceMonitors/PodMonitors in every namespace, not just the release namespace --
+    # KubeThrifty's own cgroup-truth PodMonitor lives in the kubethrifty namespace.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    # Identifies the cluster on every series; the analyser keys recommendations by cluster.
+    externalLabels:
+      cluster: kubethrifty-demo
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        # memory limit == request: Prometheus is the observability backstop, and an OOMKilled
+        # Prometheus makes the whole product blind. Same rule the analyser applies to workloads.
+        memory: 1Gi
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+# --------------------------------------------------------------------------------------------
+# kube-state-metrics: the source of kube_pod_container_resource_requests / _limits, which is how
+# the analyser knows what a workload ASKED for. Usage without requests cannot produce a waste
+# percentage, so this is not optional.
+# --------------------------------------------------------------------------------------------
+kube-state-metrics:
+  enabled: true
+  metricLabelsAllowlist:
+    - pods=[app.kubernetes.io/name,app.kubernetes.io/component,kubethrifty.io/tier]
+  extraArgs:
+    # Needed by the HPA-collision guard: it must see HPA target utilisation and replica counts.
+    - --resources=pods,deployments,statefulsets,daemonsets,nodes,horizontalpodautoscalers,poddisruptionbudgets,replicasets,jobs,cronjobs
+
+prometheus-node-exporter:
+  enabled: true
+
+grafana:
+  enabled: true
+  # Pinned; never :latest.
+  image:
+    tag: "13.0.7"
+  adminPassword: kubethrifty_dev_only
+  defaultDashboardsEnabled: true
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+
+# The demo cluster has one control-plane node managed by kind, so these alerting rules only
+# generate noise about components we deliberately do not run.
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeSchedulerAlerting: false
+    kubeControllerManager: false
+    kubeProxy: false
+
+alertmanager:
+  enabled: false

@@ -1,0 +1,114 @@
+{{- if .Values.analyser.enabled }}
+# ================================================================================================
+# The analyser's RBAC. THE ENTIRE MUTATING SURFACE OF KUBETHRIFTY IS IN THIS FILE.
+#
+# There is exactly one mutating verb: `patch` on `pods/resize`. Everything else is read-only.
+#
+# Read this list for what is ABSENT, because that is the security argument:
+#
+#   no `delete` on pods            KubeThrifty cannot restart a workload to apply a change. That is
+#                                  what makes "zero restarts" a structural guarantee and not a
+#                                  promise.
+#   no write on deployments,       Durable right-sizing reaches a cluster ONLY through a merged Git
+#   statefulsets, daemonsets       PR. The analyser opens PRs; it never applies manifests.
+#   no `secrets` at all            Not even read. A right-sizer has no business reading secrets, and
+#                                  the most common way a monitoring component becomes a credential
+#                                  exfiltration path is a lazily broad ClusterRole.
+#   no `pods/exec`, `pods/attach`  No shell into any container, ever.
+#   no `nodes` write               Cannot cordon, drain, or taint.
+#   no `eviction` subresource      Cannot evict a pod even indirectly.
+#
+# `pods/resize` is a SUBRESOURCE. Granting `patch` on it does NOT grant `patch` on `pods`, so this
+# role cannot relabel a pod, change its annotations, or alter anything except its container
+# resources. That distinction is the whole reason in-place resize is safe to automate.
+# ================================================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-analyser
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyser
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-analyser
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+rules:
+  # --- READ: what exists and what it asked for ------------------------------------------------
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+  # --- THE ONLY MUTATING RULE IN THE ENTIRE SYSTEM ---------------------------------------------
+  # A subresource, so this does not confer `patch` on `pods` itself.
+  - apiGroups: [""]
+    resources: ["pods/resize"]
+    verbs: ["patch"]
+
+  # --- READ: workload shape, for ownership and replica counts ----------------------------------
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+
+  # --- READ: the HPA collision guard -----------------------------------------------------------
+  # An HPA targeting utilisation-of-request means shrinking the request raises measured utilisation
+  # and can trigger a scale-out costing more than the saving. The guard cannot run without this.
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+
+  # --- READ: KEDA ScaledObjects ----------------------------------------------------------------
+  # An HPA owned by a ScaledObject must be reported as `keda`, not treated as a plain HPA: editing
+  # the HPA directly would be reverted by the KEDA operator on its next reconcile.
+  - apiGroups: ["keda.sh"]
+    resources: ["scaledobjects"]
+    verbs: ["get", "list", "watch"]
+
+  # --- READ: the rehearsal preflight -----------------------------------------------------------
+  # A PDB at its floor means the cluster has no disruption budget left to spend.
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+
+  # --- READ: the bin-packer --------------------------------------------------------------------
+  # Node allocatable and capacity, for the node-count delta. READ ONLY: no cordon, no drain, no
+  # taint.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+
+  # --- READ: events, for change attribution ----------------------------------------------------
+  # ThriftDetective correlates regressions against resize events. Read-only.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+  # --- Leases: lease-based mutual exclusion ----------------------------------------------------
+  # Scoped to the release namespace by the RoleBinding below, NOT cluster-wide.
+  {{- if .Values.analyser.rehearsalEnabled }}
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "create", "update"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-analyser
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubethrifty.fullname" . }}-analyser
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubethrifty.fullname" . }}-analyser
+    namespace: {{ .Release.Namespace }}
+{{- end }}

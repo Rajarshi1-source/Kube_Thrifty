@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Secrets. Nothing resembling a credential belongs in this repo.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+kubeconfig
+kubeconfig-*
+
+# Local state
+*.log
+.DS_Store
+Thumbs.db
+
+# Evidence bundles are content-addressed and reproducible; the artefacts are not committed.
+/artifacts/
+/evidence/
+
+# NOT ignored, deliberately:
+#   analyser/requirements.lock        the resolved graph is the point
+#   analyser/evals/corpus/digests.json  the determinism anchor CI asserts against
+#   analyser/evals/baseline.json      the forecast-accuracy anchor
+#   config/instances.json             pinned prices, read at analysis time

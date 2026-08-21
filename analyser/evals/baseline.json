@@ -1,0 +1,34 @@
+{
+  "_note": "Bootstrapped from the dependency-free SeasonalNaive forecaster. Re-run `python forecast_eval.py --bootstrap` with statsforecast installed to record the production AutoETS baseline, then commit. Thresholds gate CI in forecast_eval.py.",
+  "model": "seasonal-naive:hour-of-week+trend",
+  "observed_mean_smape": 8.416,
+  "observed_mean_coverage": 0.719,
+  "target_smape": 11.02,
+  "min_coverage": 0.649,
+  "per_fixture": {
+    "flat_steady": {
+      "smape": 4.4,
+      "coverage": 0.764,
+      "confident": true,
+      "model": "seasonal-naive:hour-of-week+trend"
+    },
+    "rising_trend": {
+      "smape": 3.198,
+      "coverage": 0.681,
+      "confident": true,
+      "model": "seasonal-naive:hour-of-week+trend"
+    },
+    "weekly_seasonal": {
+      "smape": 5.71,
+      "coverage": 0.722,
+      "confident": true,
+      "model": "seasonal-naive:hour-of-week+trend"
+    },
+    "nearly_idle": {
+      "smape": 20.357,
+      "coverage": 0.708,
+      "confident": true,
+      "model": "seasonal-naive:hour-of-week+trend"
+    }
+  }
+}

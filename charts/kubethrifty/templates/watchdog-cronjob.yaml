@@ -1,0 +1,82 @@
+{{- if and .Values.watchdog.enabled .Values.analyser.rehearsalEnabled }}
+# ================================================================================================
+# The rehearsal watchdog. A SEPARATE CronJob, and that separation is the entire point.
+#
+# Its job is to clean up after an analyser that died mid-rehearsal. A watchdog running inside the
+# process it guards dies with it, which makes it decorative. The specific failure this exists for:
+#
+#     the analyser is OOMKilled between the resize PATCH and its `finally` revert
+#
+# At that instant a live pod carries experimental limits, the `finally` will never run, and the only
+# record is the compensation row written BEFORE the mutation. This CronJob is what turns that record
+# into an actual recovery.
+#
+# It runs every 5 minutes against a deadline that carries 600s of slack, so a merely-slow rehearsal
+# is never stolen from itself -- but a dead one is reclaimed within one cycle.
+# ================================================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-watchdog
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: watchdog
+spec:
+  schedule: {{ .Values.watchdog.schedule | quote }}
+  # Forbid overlap. Two sweepers patching the same pod back to the same values is harmless but
+  # confusing in an audit log, and it doubles API load for no benefit.
+  concurrencyPolicy: Forbid
+  # If the controller was down, a missed sweep should still run. 300s is long enough to catch up and
+  # short enough that a very stale sweep does not fire against a cluster that has moved on.
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  # More failed history than successful: a failing watchdog is the thing an operator needs to
+  # investigate, and its logs are the evidence.
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      # No retries. The next scheduled run IS the retry, and it re-reads the compensation log so it
+      # cannot act on stale state.
+      backoffLimit: 0
+      # Bounded, so a hung sweep cannot outlive its own schedule and pile up.
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels:
+            {{- include "kubethrifty.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: watchdog
+        spec:
+          restartPolicy: Never
+          # The SAME ServiceAccount as the analyser, so the watchdog's mutating surface is identical:
+          # `patch` on `pods/resize` and nothing else. A separate, broader role would make the
+          # recovery path more privileged than the thing it recovers from.
+          serviceAccountName: {{ include "kubethrifty.fullname" . }}-analyser
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: watchdog
+              image: "{{ .Values.analyser.image.repository }}:{{ .Values.analyser.image.tag }}"
+              imagePullPolicy: {{ .Values.analyser.image.pullPolicy }}
+              command: ["python", "-m", "src.rehearsal.watchdog"]
+              env:
+                - name: CLUSTER_NAME
+                  value: {{ .Values.clusterName | default "kubethrifty-demo" | quote }}
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "kubethrifty.fullname" . }}-db
+                      key: url
+                - name: LOG_LEVEL
+                  value: {{ .Values.logLevel | default "INFO" | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                {{- toYaml .Values.watchdog.resources | nindent 16 }}
+{{- end }}

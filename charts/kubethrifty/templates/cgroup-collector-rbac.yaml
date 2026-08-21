@@ -1,0 +1,66 @@
+{{- if .Values.cgroupCollector.enabled }}
+# ================================================================================================
+# The collector's ServiceAccount.
+#
+# It has NO Role and NO RoleBinding, and that is the point rather than an omission. The collector
+# reads the kernel's cgroup filesystem and joins samples to pods by cgroup path; it never calls the
+# Kubernetes API. Its pod spec also sets `automountServiceAccountToken: false`, so no token is even
+# present in the container.
+#
+# The ServiceAccount exists only so the pod has a stable identity for audit logs and admission
+# policies. Granting it read access "just in case" would hand a host-path-mounting pod a credential
+# it has no use for.
+# ================================================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-cgroup-collector
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cgroup-collector
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-cgroup-collector
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cgroup-collector
+spec:
+  # Headless: Prometheus scrapes each pod individually, since every node's numbers are distinct.
+  # A load-balanced ClusterIP would return one arbitrary node's view per scrape.
+  clusterIP: None
+  selector:
+    {{- include "kubethrifty.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: cgroup-collector
+  ports:
+    - name: metrics
+      port: {{ .Values.cgroupCollector.port }}
+      targetPort: metrics
+      protocol: TCP
+{{- if .Values.cgroupCollector.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-cgroup-collector
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    {{- with .Values.cgroupCollector.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kubethrifty.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cgroup-collector
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.cgroupCollector.serviceMonitor.interval }}
+      # honorLabels so the collector's own pod_uid / container_id / node labels survive. Without it
+      # Prometheus overwrites them with the scrape target's labels, and every sample collapses onto
+      # the collector pod instead of the container it describes -- leaving the data unjoinable.
+      honorLabels: true
+{{- end }}
+{{- end }}

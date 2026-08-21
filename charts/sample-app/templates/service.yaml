@@ -1,0 +1,42 @@
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: sample-app
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}
+---
+# One ServiceMonitor for the whole demo namespace. This scrapes the generator's own /metrics, which
+# is useful for eyeballing what the generator INTENDS to do. It is not the measurement path: every
+# number the analyser acts on comes from cAdvisor and the cgroup-truth collector, because a
+# workload reporting its own resource use is exactly the sort of evidence this project refuses.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-app
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: sample-app
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Values.namespace }}]
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: sample-app
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      honorLabels: true

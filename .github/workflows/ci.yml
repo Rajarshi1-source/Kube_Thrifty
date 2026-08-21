@@ -1,0 +1,284 @@
+name: CI
+
+# Every gate in this file exits non-zero on regression. There are no `continue-on-error` steps and no
+# soft warnings: a gate that can be ignored is documentation, not a gate.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14"
+  NODE_VERSION: "24"
+
+jobs:
+  # ==============================================================================================
+  # Python: lint, unit tests, and the FOUR eval gates.
+  # ==============================================================================================
+  analyser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: analyser/requirements.lock
+
+      - name: Install from the LOCKFILE
+        working-directory: analyser
+        # The lockfile, not requirements.txt: CI must resolve to exactly the versions that were
+        # tested, or the eval gates are grading a different dependency set than the one that ships.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.lock
+          python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        working-directory: analyser
+        run: ruff check .
+
+      - name: Unit tests
+        working-directory: analyser
+        run: python -m pytest tests -q
+
+      # --- GATE 1: sizing DECISIONS ------------------------------------------------------------
+      # Categorical assertions, not float comparisons. "Did it choose to reduce?" and "was the
+      # binding constraint the peak margin?" -- not "is the number 1234.56". A float-tolerance test
+      # passes while the decision silently inverts.
+      - name: "Gate: sizing decisions"
+        working-directory: analyser
+        run: python -m evals.sizing_eval
+
+      # --- GATE 2: forecast accuracy ------------------------------------------------------------
+      # sMAPE plus 90% interval COVERAGE against baseline.json. Coverage matters as much as error:
+      # a forecaster with great sMAPE and 40% coverage produces confident intervals that are wrong
+      # more than half the time, and the interval upper bound is what becomes a sizing floor.
+      - name: "Gate: forecast accuracy"
+        working-directory: analyser
+        run: python -m evals.forecast_eval
+
+      # --- GATE 3: detective accuracy, CALIBRATION, and DETERMINISM ----------------------------
+      # top-1 >= 0.90, Brier <= 0.08, ECE <= 0.10, plus the corpus digest.
+      #
+      # Calibration is gated separately from accuracy because a detective that is right 92% of the
+      # time while claiming 99% confidence is miscalibrated, and its confidence number is then
+      # actively misleading.
+      #
+      # The determinism check lives inside this gate: `investigate(bundle)` is pure -- no network, no
+      # clock, no randomness, no LLM -- so the same corpus must hash identically forever. A digest
+      # mismatch fails the gate. That is a BUILD BREAK, not a warning: it means a rule changed
+      # behaviour, and that has to be a deliberate, explained commit rather than drift nobody
+      # noticed.
+      - name: "Gate: detective accuracy, calibration and determinism"
+        working-directory: analyser
+        run: python -m evals.detective_eval
+
+      # --- GATE 4: the Rev 2 engine, kept for the before/after story ---------------------------
+      - name: "Gate: legacy recommendation engine"
+        working-directory: analyser
+        run: python -m evals.recommendation_eval
+
+      # The gates must not MUTATE their own anchors. Re-freezing is a deliberate act
+      # (`python corpus/generate.py --freeze`) that belongs in its own reviewed commit with a reason;
+      # a gate that silently rewrites digests.json while passing would grade nothing at all.
+      - name: "Guard: eval anchors were not rewritten"
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- analyser/evals/corpus/digests.json analyser/evals/baseline.json; then
+            echo "FAIL: running the gates modified digests.json or baseline.json."
+            git --no-pager diff -- analyser/evals/corpus/digests.json analyser/evals/baseline.json
+            exit 1
+          fi
+          echo "eval anchors unchanged"
+
+  # ==============================================================================================
+  # Dashboard: typecheck, lint, unit tests, production build.
+  # ==============================================================================================
+  dashboard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install
+        working-directory: dashboard
+        # `npm ci` honours the lockfile exactly and fails if package.json and the lock disagree.
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: dashboard
+        # Strict mode plus noUncheckedIndexedAccess is what turns "a missing metric became 0" into a
+        # compile error rather than a rendering bug.
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: dashboard
+        run: npm run lint
+
+      - name: Unit tests
+        working-directory: dashboard
+        # Includes the cache-key parity test, which asserts the TypeScript key builders match the
+        # Python ones literally. A divergence there is silent: one side gets a permanent cache miss,
+        # the other a stale entry nobody invalidates.
+        run: npm test
+
+      - name: Build
+        working-directory: dashboard
+        env:
+          # Build-time placeholders. lib/env.ts validates at module load, so the build would fail
+          # without them -- which is the intended behaviour, just not useful here.
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379
+          PROMETHEUS_URL: http://localhost:9090
+        run: npm run build
+
+  # ==============================================================================================
+  # Helm + the pinning guard.
+  # ==============================================================================================
+  charts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "4.2.4"
+
+      - name: Lint charts
+        run: |
+          helm lint charts/kubethrifty
+          helm lint charts/sample-app
+
+      - name: Render charts
+        run: |
+          helm template kubethrifty charts/kubethrifty \
+            --set analyser.rehearsalEnabled=true > /tmp/kubethrifty.yaml
+          helm template sample-app charts/sample-app > /tmp/sample-app.yaml
+
+      # --- THE PINNING GUARD --------------------------------------------------------------------
+      # A right-sizing tool whose own dependencies drift has no standing to lecture anyone about
+      # pinning. This fails the build on any floating tag, anywhere -- rendered charts and
+      # docker-compose.yml included.
+      - name: "Guard: no unpinned images"
+        run: |
+          set -euo pipefail
+          fail=0
+
+          echo "--- checking rendered charts and compose ---"
+          for f in /tmp/kubethrifty.yaml /tmp/sample-app.yaml docker-compose.yml; do
+            # Every `image:` line must carry an explicit `:tag` or `@sha256:` digest.
+            while IFS= read -r line; do
+              img="$(echo "$line" | sed -E 's/.*image:[[:space:]]*//' | tr -d '"'"'"'')"
+              # Skip templated values that survive rendering (none expected, but be explicit).
+              case "$img" in ""|*'{{'*) continue ;; esac
+              if echo "$img" | grep -qE ':latest$'; then
+                echo "FAIL: :latest in $f -> $img"; fail=1
+              elif ! echo "$img" | grep -qE '(@sha256:[a-f0-9]{64}|:[A-Za-z0-9][A-Za-z0-9._-]*)$'; then
+                echo "FAIL: untagged image in $f -> $img"; fail=1
+              fi
+            done < <(grep -E '^\s*image:\s' "$f" || true)
+          done
+
+          echo "--- checking Dockerfiles ---"
+          while IFS= read -r df; do
+            while IFS= read -r line; do
+              img="$(echo "$line" | awk '{print $2}')"
+              case "$img" in scratch) continue ;; esac
+              if echo "$img" | grep -qE ':latest$' || ! echo "$img" | grep -qE '(@sha256:|:)'; then
+                echo "FAIL: unpinned base image in $df -> $img"; fail=1
+              fi
+            done < <(grep -E '^\s*FROM\s' "$df" || true)
+          done < <(find . -name Dockerfile -not -path './node_modules/*')
+
+          if [ "$fail" -ne 0 ]; then
+            echo ""
+            echo "Unpinned images found. Pin every tag to an exact patch version."
+            exit 1
+          fi
+          echo "all images pinned"
+
+      # --- THE PYTHON PINNING GUARD -------------------------------------------------------------
+      - name: "Guard: exact Python pins"
+        run: |
+          set -euo pipefail
+          # `>=`, `~=` and `*` all permit drift between the tested set and the shipped one.
+          if grep -nE '(>=|~=|\*)' analyser/requirements.txt | grep -v '^\s*#'; then
+            echo "FAIL: requirements.txt must use exact == pins"
+            exit 1
+          fi
+          echo "python pins are exact"
+
+      - name: "Guard: exact npm pins"
+        run: |
+          set -euo pipefail
+          # A caret in package.json means `npm install` can resolve differently tomorrow.
+          if node -e '
+            const p = require("./dashboard/package.json");
+            const bad = [];
+            for (const s of ["dependencies", "devDependencies"])
+              for (const [k, v] of Object.entries(p[s] || {}))
+                if (/[\^~><*]|latest/.test(v)) bad.push(`${k}@${v}`);
+            if (bad.length) { console.error("FAIL: unpinned npm deps: " + bad.join(", ")); process.exit(1); }
+            console.log("npm pins are exact");
+          '; then :; else exit 1; fi
+
+  # ==============================================================================================
+  # Migrations: prove the SQL applies against the PINNED image, and that the Toolkit is present.
+  # ==============================================================================================
+  migrations:
+    runs-on: ubuntu-24.04
+    services:
+      timescaledb:
+        # The `-all` variant. The plain image starts fine and then fails 001_core.sql with
+        # "function percentile_agg does not exist" -- a failure worth catching in CI rather than on
+        # a first deploy.
+        image: timescale/timescaledb-ha:pg18.4-ts2.29.2-all
+        env:
+          POSTGRES_DB: kubethrifty
+          POSTGRES_USER: kubethrifty
+          POSTGRES_PASSWORD: ci_only
+          POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kubethrifty -d kubethrifty"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Apply migrations in filename order
+        env:
+          PGPASSWORD: ci_only
+        run: |
+          set -euo pipefail
+          for f in migrations/*.sql; do
+            echo "--- $f"
+            psql -h localhost -U kubethrifty -d kubethrifty -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      # Asserts the Toolkit round trip, both hypertables, the continuous aggregate, and that every
+      # safety CHECK constraint actually refuses a bad row.
+      - name: Verify schema and safety constraints
+        env:
+          PGPASSWORD: ci_only
+        run: |
+          psql -h localhost -U kubethrifty -d kubethrifty -v ON_ERROR_STOP=1 \
+            -f scripts/verify_schema.sql

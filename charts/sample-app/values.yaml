@@ -1,0 +1,131 @@
+# The over-provisioning below is INTENTIONAL and is the entire point of the demo.
+#
+#   declared requests   5.5 CPU / 6.5 GiB
+#   real observed peak  ~1.7 CPU / ~2.6 GiB
+#
+# That is roughly 69% CPU waste and 60% memory waste -- deliberately in the same range as the
+# published industry averages, so the numbers KubeThrifty reports are recognisable rather than
+# theatrical. Nobody should "tidy up" these requests: doing so deletes the thing being measured.
+#
+# `cpuTarget` / `memTarget` are what the load generator actually consumes. `resources` are what the
+# manifests ASK for. The analyser's job is to notice the difference and explain it.
+
+image:
+  repository: kubethrifty-loadgen
+  tag: "dev"           # kind load docker-image kubethrifty-loadgen:dev
+  pullPolicy: IfNotPresent
+
+namespace: shop
+
+# Common security posture. The demo services are not privileged in any way.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+services:
+  # ------------------------------------------------------------------------------------------
+  # steady. The easy case: flat demand, P95 close to the peak. A percentile sizer handles this
+  # one correctly, which is exactly why it belongs in the demo -- it shows KubeThrifty agreeing
+  # with the naive answer when the naive answer happens to be right.
+  # ------------------------------------------------------------------------------------------
+  api-gateway:
+    profile: steady
+    replicas: 2
+    cpuTarget: 120           # millicores actually consumed
+    memTarget: 180           # MiB actually resident
+    resources:
+      requests: { cpu: "500m", memory: "640Mi" }
+      limits: { cpu: "1000m", memory: "640Mi" }
+    # An HPA on CPU utilisation-of-REQUEST. This is the HPA-collision trap: cut the request and
+    # utilisation-of-request jumps, so the HPA scales OUT and the "saving" becomes a bigger bill.
+    # coupling/detect.py must find this and force a co-change of the target in the same PR.
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+      targetCPUUtilizationPercentage: 70
+    pdb:
+      enabled: true
+      minAvailable: 1
+
+  # ------------------------------------------------------------------------------------------
+  # bursty. THE case that carries the product's central argument. Quiet for 14 minutes, then a
+  # 60-second spike at 3x. The spike is ~7% of samples, so it lands just ABOVE P95: a percentile
+  # sizer discards it and sets a memory request under real demand, and the next spike OOMKills
+  # the container. Sizing memory off the observed peak survives it.
+  # ------------------------------------------------------------------------------------------
+  order-service:
+    profile: bursty
+    replicas: 2
+    cpuTarget: 90
+    memTarget: 120
+    peakMultiplier: 3.0
+    spikePeriodSeconds: 900
+    spikeDurationSeconds: 60
+    resources:
+      requests: { cpu: "750m", memory: "1024Mi" }
+      limits: { cpu: "1500m", memory: "1024Mi" }
+    pdb:
+      enabled: true
+      minAvailable: 1
+
+  # ------------------------------------------------------------------------------------------
+  # cpu_heavy. Runs sustained near its CPU limit, so CFS throttling shows up in
+  # container_cpu_cfs_throttled_periods_total. CPU is compressible: this workload is slow, not
+  # dying. The sizer must NOT lower its CPU limit (THROTTLE_NOTE blocks that) while still being
+  # free to reclaim its badly over-sized memory request.
+  # ------------------------------------------------------------------------------------------
+  payment-processor:
+    profile: cpu_heavy
+    replicas: 1
+    cpuTarget: 800
+    memTarget: 120
+    resources:
+      requests: { cpu: "1500m", memory: "512Mi" }
+      limits: { cpu: "1600m", memory: "512Mi" }
+    pdb:
+      enabled: false          # single replica: a PDB here would only block the rehearsal
+
+  # ------------------------------------------------------------------------------------------
+  # memory_heavy. Sawtooth heap between 65% and 100% of target, like a GC'd runtime. Instantaneous
+  # RSS understates the demand the allocator needs headroom for, which is what
+  # MEM_HEADROOM_FOR_GC (1.10) exists to cover. Annotated as a JVM so the sizer applies it.
+  # ------------------------------------------------------------------------------------------
+  inventory-cache:
+    profile: memory_heavy
+    replicas: 1
+    cpuTarget: 90
+    memTarget: 1400
+    runtimeHint: "java"
+    resources:
+      requests: { cpu: "500m", memory: "2048Mi" }
+      limits: { cpu: "1000m", memory: "2048Mi" }
+    pdb:
+      enabled: false
+
+  # ------------------------------------------------------------------------------------------
+  # nearly_idle. ~97% waste by percentage and almost nothing in absolute terms. This service is
+  # in the demo to make one point: per-pod waste percentages are a RANKING signal, not a savings
+  # figure. Reclaiming 485m here saves nothing until a whole node disappears -- which is why the
+  # only rupee number the product prints comes from the bin-packer's node delta.
+  # ------------------------------------------------------------------------------------------
+  notification-worker:
+    profile: nearly_idle
+    replicas: 2
+    cpuTarget: 15
+    memTarget: 60
+    resources:
+      requests: { cpu: "500m", memory: "384Mi" }
+      limits: { cpu: "1000m", memory: "384Mi" }
+    pdb:
+      enabled: true
+      minAvailable: 1

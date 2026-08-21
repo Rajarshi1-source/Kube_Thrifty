@@ -1,0 +1,186 @@
+# KubeThrifty chart values.
+#
+# Every image tag is an EXACT pin. `policy.yml` greps the rendered chart in CI and fails the build on
+# any floating tag, `:latest` included -- a right-sizing tool whose own dependencies drift has no
+# standing to lecture anyone about pinning.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Must match the `clusters.name` row the analyser writes, or the dashboard joins against nothing and
+# renders an empty cluster with no error.
+clusterName: kubethrifty-demo
+logLevel: INFO
+
+# ------------------------------------------------------------------------------------------------
+# The cgroup-truth collector.
+#
+# This is what makes memory sizing defensible: `memory.peak` is the kernel's own monotonic
+# high-water mark, so unlike cAdvisor's 15-second sampled working set it cannot miss the allocation
+# burst that OOMKills a container.
+#
+# Disabling it is supported, and honest: memory then falls back to a sampled gauge and every memory
+# recommendation is stamped `partial`. It does not silently degrade.
+# ------------------------------------------------------------------------------------------------
+cgroupCollector:
+  enabled: true
+  image:
+    repository: ghcr.io/kubethrifty/cgroup-collector
+    # Replaced by the commit SHA in CI. Never `latest`.
+    tag: "0.3.0"
+    pullPolicy: IfNotPresent
+  port: 9847
+  priorityClassName: system-node-critical
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    labels: {}
+  # Recording rules that join the collector's container_id-labelled samples to
+  # namespace/pod/container via kube-state-metrics. The collector holds no API credentials, so this
+  # join is how its data becomes usable at all.
+  recordingRules:
+    enabled: true
+    labels: {}
+  # Small and Guaranteed (limit == request), so the collector is the LAST thing evicted under node
+  # pressure. Losing it exactly when the cluster is stressed would blank the evidence at the moment
+  # it matters most.
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 20m
+      memory: 64Mi
+
+# ------------------------------------------------------------------------------------------------
+# The analyser. Scales 0..N off the analysis-jobs stream via KEDA.
+# ------------------------------------------------------------------------------------------------
+analyser:
+  enabled: true
+  image:
+    repository: ghcr.io/kubethrifty/analyser
+    tag: "0.3.0"
+    pullPolicy: IfNotPresent
+
+  window: 7d
+  # Off by default. A durable resource change reaches a cluster only through a merged PR, and a PR
+  # is opened only when somebody deliberately turns this on.
+  autoPr: false
+  # Rehearsals mutate a live pod. Opt-in, globally.
+  rehearsalEnabled: false
+
+  keda:
+    enabled: true
+    # Scale to ZERO. The analyser is a batch job that runs every 6 hours; keeping a replica warm
+    # would cost more than it saves, which would be an embarrassing way to run a cost tool.
+    minReplicaCount: 0
+    maxReplicaCount: 4
+    pollingInterval: 30
+    cooldownPeriod: 300
+    # Lag on the consumer group, so a backlog spreads across pods.
+    pendingEntriesCount: 1
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      # CPU limit is generous: over-limit means CFS throttling, which is survivable.
+      cpu: "2"
+      # Memory limit == request. Over-limit means an OOMKill, which is not.
+      memory: 512Mi
+
+  enqueuer:
+    enabled: true
+    schedule: "0 */6 * * *"
+
+# ------------------------------------------------------------------------------------------------
+# The rehearsal watchdog.
+#
+# A SEPARATE CronJob, deliberately not a thread inside the analyser. Its entire purpose is to clean
+# up after an analyser that died mid-rehearsal, and a watchdog sharing the process it guards dies
+# with it.
+# ------------------------------------------------------------------------------------------------
+watchdog:
+  enabled: true
+  # Every 5 minutes. The revert deadline carries 600s of slack, so the sweeper always gets at least
+  # one attempt before a pod overstays meaningfully.
+  schedule: "*/5 * * * *"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+dashboard:
+  enabled: true
+  image:
+    repository: ghcr.io/kubethrifty/dashboard
+    tag: "0.3.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts: []
+    tls: []
+  # The dashboard holds NO cluster credentials and exposes no write endpoints, so a PDB plus two
+  # replicas is the whole availability story.
+  pdb:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+timescaledb:
+  enabled: true
+  image:
+    # The `-all` variant is REQUIRED: it carries the Timescale Toolkit that percentile_agg and
+    # approx_percentile need. The plain image starts fine and then fails 001_core.sql with
+    # "function percentile_agg does not exist".
+    repository: timescale/timescaledb-ha
+    tag: "pg18.4-ts2.29.2-all"
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+valkey:
+  enabled: true
+  image:
+    repository: valkey/valkey
+    tag: "9.1-alpine3.24"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+prometheus:
+  # In-cluster URL of the kube-prometheus-stack Prometheus.
+  url: http://monitoring-prometheus.monitoring.svc:9090
+
+github:
+  # Name of an existing Secret holding `token`. Never a chart value: a token in values.yaml ends up
+  # in `helm get values` output and in every CI log that renders the chart.
+  existingSecret: ""
+  repo: ""
+  baseBranch: main

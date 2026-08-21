@@ -1,0 +1,57 @@
+{{- if and .Values.analyser.enabled .Values.analyser.keda.enabled }}
+# ================================================================================================
+# KEDA ScaledObject: the analyser runs 0..N off the analysis-jobs stream.
+#
+# `minReplicaCount: 0` is the point. The analyser is a batch job that runs every 6 hours and takes a
+# few minutes. Keeping a replica warm around the clock would cost more than the right-sizing saves,
+# which would be an embarrassing way to run a cost-optimisation tool.
+#
+# The scaler reads CONSUMER GROUP LAG, not stream length. That distinction matters: stream length
+# counts every entry ever added (until trimmed), so scaling on it would keep the analyser awake
+# forever after the first job. Lag counts only what has not been acknowledged.
+#
+# This is also why the queue is a Redis STREAM and not a list. A list has no notion of "delivered
+# but unacknowledged", so a worker OOMKilled mid-analysis loses its job silently -- and KEDA would
+# have nothing to scale on.
+# ================================================================================================
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "kubethrifty.fullname" . }}-analyser
+  labels:
+    {{- include "kubethrifty.labels" . | nindent 4 }}
+    app.kubernetes.io/component: analyser
+spec:
+  scaleTargetRef:
+    name: {{ include "kubethrifty.fullname" . }}-analyser
+  minReplicaCount: {{ .Values.analyser.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.analyser.keda.maxReplicaCount }}
+  pollingInterval: {{ .Values.analyser.keda.pollingInterval }}
+  # Long enough that a burst of jobs does not thrash the pod up and down, short enough that an idle
+  # analyser stops costing anything within a few minutes.
+  cooldownPeriod: {{ .Values.analyser.keda.cooldownPeriod }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          # Scale down deliberately, one pod at a time. A run in flight must not be interrupted
+          # because the queue briefly looked empty.
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 120
+  triggers:
+    - type: redis-streams
+      metadata:
+        addressFromEnv: REDIS_ADDRESS
+        stream: analysis-jobs
+        consumerGroup: analysers
+        # One pending entry per replica: a backlog spreads across pods rather than serialising
+        # behind a single worker.
+        pendingEntriesCount: "{{ .Values.analyser.keda.pendingEntriesCount }}"
+        # KEDA must not create the group. The analyser creates it with `id="0"` so that jobs
+        # enqueued while it was scaled to zero are still delivered -- which is the state this system
+        # spends most of its life in. A group created at `"$"` would silently discard them.
+        enableTLS: "false"
+{{- end }}

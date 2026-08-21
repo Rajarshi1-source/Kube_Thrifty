@@ -1,0 +1,212 @@
+{
+  "_meta": {
+    "purpose": "Labeled sizing DECISIONS (not floats). Each case asserts what the Rev 3 sizer must do.",
+    "units": {
+      "cpu": "cores",
+      "memory": "MiB"
+    },
+    "note": "psi_stalled_ratio / throttle_ratio use null for NOT OBSERVED -- never 0."
+  },
+  "cases": [
+    {
+      "name": "steady_idle",
+      "resource": "cpu",
+      "current_request": 2.0,
+      "current_limit": 2.0,
+      "stats": {
+        "p50": 0.1,
+        "p95": 0.14,
+        "p99": 0.18,
+        "peak": 0.22,
+        "samples": 504,
+        "psi_stalled_ratio": 0.0,
+        "throttle_ratio": 0.0,
+        "oom_events": 0
+      },
+      "predictive_floor": 0.16,
+      "expect": {
+        "action": "reduce",
+        "binding_constraint": "p95_margin",
+        "reduction_blocked": false
+      }
+    },
+    {
+      "name": "rising_trend_forecast_floor",
+      "resource": "cpu",
+      "current_request": 1.0,
+      "current_limit": 2.0,
+      "stats": {
+        "p50": 0.3,
+        "p95": 0.42,
+        "p99": 0.48,
+        "peak": 0.55,
+        "samples": 504,
+        "psi_stalled_ratio": 0.0,
+        "throttle_ratio": 0.001,
+        "oom_events": 0
+      },
+      "predictive_floor": 0.72,
+      "expect": {
+        "action": "reduce",
+        "binding_constraint": "forecast",
+        "reduction_blocked": false
+      }
+    },
+    {
+      "name": "throttled_at_current_limit",
+      "resource": "cpu",
+      "current_request": 0.5,
+      "current_limit": 0.6,
+      "stats": {
+        "p50": 0.4,
+        "p95": 0.55,
+        "p99": 0.59,
+        "peak": 0.6,
+        "samples": 504,
+        "psi_stalled_ratio": 0.01,
+        "throttle_ratio": 0.18,
+        "oom_events": 0
+      },
+      "predictive_floor": 0.0,
+      "expect": {
+        "limit_not_below": 0.6,
+        "reduction_blocked": false
+      }
+    },
+    {
+      "name": "noisy_short",
+      "resource": "cpu",
+      "current_request": 1.0,
+      "current_limit": 1.5,
+      "stats": {
+        "p50": 0.2,
+        "p95": 0.9,
+        "p99": 1.4,
+        "peak": 1.8,
+        "samples": 60,
+        "psi_stalled_ratio": null,
+        "throttle_ratio": null,
+        "oom_events": 0
+      },
+      "predictive_floor": 0.0,
+      "expect": {
+        "action": "needs_review"
+      }
+    },
+    {
+      "name": "rehearsed_floor_binds",
+      "resource": "cpu",
+      "current_request": 1.0,
+      "current_limit": 2.0,
+      "stats": {
+        "p50": 0.1,
+        "p95": 0.15,
+        "p99": 0.2,
+        "peak": 0.25,
+        "samples": 504,
+        "psi_stalled_ratio": 0.0,
+        "throttle_ratio": 0.002,
+        "oom_events": 0,
+        "rehearsed_floor": 0.3
+      },
+      "predictive_floor": 0.18,
+      "expect": {
+        "action": "reduce",
+        "binding_constraint": "rehearsed",
+        "reduction_blocked": false
+      }
+    },
+    {
+      "name": "spiky_peak_gt_p95",
+      "resource": "memory",
+      "current_request": 1024.0,
+      "current_limit": 1024.0,
+      "stats": {
+        "p50": 180.0,
+        "p95": 240.0,
+        "p99": 460.0,
+        "peak": 620.0,
+        "samples": 504,
+        "psi_stalled_ratio": 0.0,
+        "throttle_ratio": null,
+        "oom_events": 0
+      },
+      "predictive_floor": 0.0,
+      "expect": {
+        "action": "reduce",
+        "request_at_least": 620.0,
+        "binding_constraint": "peak_margin",
+        "limit_equals_request": true
+      }
+    },
+    {
+      "name": "low_util_high_pressure",
+      "resource": "memory",
+      "current_request": 512.0,
+      "current_limit": 512.0,
+      "stats": {
+        "p50": 120.0,
+        "p95": 200.0,
+        "p99": 300.0,
+        "peak": 470.0,
+        "samples": 504,
+        "psi_stalled_ratio": 0.11,
+        "throttle_ratio": 0.0,
+        "oom_events": 0
+      },
+      "predictive_floor": 0.0,
+      "expect": {
+        "action": "increase",
+        "no_reduction_below": 512.0,
+        "reduction_blocked": true,
+        "limit_equals_request": true
+      },
+      "_why": "Average usage is low but peak is 470Mi against a 512Mi limit AND memory PSI shows 11% full stall: the workload is thrashing reclaim and needs MORE, not less. A percentile-based sizer would cut this to ~250Mi and cause an outage. The label asserts the cut is impossible, not merely unlikely."
+    },
+    {
+      "name": "oom_history",
+      "resource": "memory",
+      "current_request": 320.0,
+      "current_limit": 320.0,
+      "stats": {
+        "p50": 250.0,
+        "p95": 300.0,
+        "p99": 315.0,
+        "peak": 318.0,
+        "samples": 504,
+        "psi_stalled_ratio": 0.03,
+        "throttle_ratio": null,
+        "oom_events": 2
+      },
+      "predictive_floor": 0.0,
+      "expect": {
+        "action": "increase",
+        "request_at_least": 477.0,
+        "reduction_blocked": true
+      }
+    },
+    {
+      "name": "gc_runtime_headroom",
+      "resource": "memory",
+      "current_request": 2048.0,
+      "current_limit": 2048.0,
+      "stats": {
+        "p50": 500.0,
+        "p95": 700.0,
+        "p99": 780.0,
+        "peak": 800.0,
+        "samples": 504,
+        "psi_stalled_ratio": 0.0,
+        "throttle_ratio": null,
+        "oom_events": 0,
+        "runtime_hint": "jvm"
+      },
+      "predictive_floor": 0.0,
+      "expect": {
+        "action": "reduce",
+        "request_at_least": 1100.0,
+        "limit_equals_request": true
+      }
+    }
+  ]
+}
