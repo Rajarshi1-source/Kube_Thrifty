@@ -34,7 +34,7 @@ percentile-sized.
 
 Measured on the demo cluster, this is not a theoretical distinction:
 
-```
+```text
 prometheus/prometheus   memory   1024 Mi requested
   sized from a sampled working-set gauge  ->  344 Mi
   sized from the kernel high-water mark   ->  507 Mi
@@ -73,7 +73,7 @@ not evidence of safety when the change never took effect.
 
 ### 4. Savings are a node-count delta
 
-```
+```text
 savings = (nodes_before − nodes_after) × node_price
 ```
 
@@ -83,7 +83,7 @@ waste is reported as a **ratio**, always.
 
 When no node becomes removable, the answer is `0.00` with a reason — not a fabricated per-pod total:
 
-```
+```text
 nodes: 3 -> 2 (m7i.large, cpu-bound)
 monthly saving: 73.58 USD (1 node removed, prices as of 2026-08-01)
 ```
@@ -288,7 +288,7 @@ its original size**, while only the safe one contributes a sizing floor.
 
 ## Repository layout
 
-```
+```text
 analyser/            Python 3.14 — the statistical core
   src/sizing.py        CPU/memory asymmetry. Graded by sizing_eval
   src/collector/       cgroup v2 truth: memory.peak, PSI, the headroom index
