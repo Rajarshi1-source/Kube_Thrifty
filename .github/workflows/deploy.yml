@@ -117,7 +117,23 @@ jobs:
         with:
           version: "4.2.4"
 
+      # `jobs.<job_id>.if` cannot see `secrets` (only github/needs/vars/inputs), so the job itself
+      # can't be skipped based on whether KUBECONFIG exists. Guarding each cluster-touching step
+      # instead: no real cluster is wired up yet, and a missing secret is a missing prerequisite,
+      # not a broken deploy. This flips to running the moment KUBECONFIG is added under repo
+      # Settings -> Secrets and variables -> Actions.
+      - name: Check for a deploy target
+        id: has_target
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+        run: |
+          if [ -z "$KUBECONFIG_B64" ]; then
+            echo "no KUBECONFIG secret configured; skipping the remaining deploy steps"
+          fi
+          echo "configured=${KUBECONFIG_B64:+true}" >> "$GITHUB_OUTPUT"
+
       - name: Configure kubeconfig
+        if: steps.has_target.outputs.configured == 'true'
         env:
           KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
         run: |
@@ -126,6 +142,7 @@ jobs:
           chmod 600 "$HOME/.kube/config"
 
       - name: helm upgrade --install
+        if: steps.has_target.outputs.configured == 'true'
         run: |
           helm upgrade --install kubethrifty charts/kubethrifty \
             --namespace kubethrifty --create-namespace \
@@ -139,6 +156,7 @@ jobs:
       # needs the `watch` verb on everything the chart manages -- a migration step that silently
       # breaks `--wait` on a Helm 3 role.
       - name: Verify rollout
+        if: steps.has_target.outputs.configured == 'true'
         run: |
           kubectl -n kubethrifty rollout status deploy/kubethrifty-dashboard --timeout=5m
           kubectl -n kubethrifty rollout status daemonset/kubethrifty-cgroup-collector --timeout=5m
@@ -146,6 +164,7 @@ jobs:
           # is its healthy steady state and `rollout status` would hang waiting for one.
 
       - name: Verify the collector is not blind
+        if: steps.has_target.outputs.configured == 'true'
         run: |
           set -euo pipefail
           # A collector that runs but reads nothing degrades every memory recommendation to
