@@ -66,6 +66,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # An OCI repository name must be lowercase. `github.repository_owner` is not normalised, so an
+      # owner with any uppercase character (e.g. `Rajarshi1-source`) produces an invalid tag and
+      # `docker/build-push-action` fails before it builds anything.
+      - name: Compute a lowercase image owner
+        id: image_owner
+        run: echo "value=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@v6
@@ -76,8 +83,8 @@ jobs:
           # SHA tags only, plus a semver tag on a release. No `latest`, ever -- the CI grep guard in
           # policy.yml fails the build if one appears.
           tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.name }}:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/{2}:{3}', env.REGISTRY, github.repository_owner, matrix.name, github.ref_name) || '' }}
+            ${{ env.REGISTRY }}/${{ steps.image_owner.outputs.value }}/${{ matrix.name }}:${{ github.sha }}
+            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/{2}:{3}', env.REGISTRY, steps.image_owner.outputs.value, matrix.name, github.ref_name) || '' }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           # SBOM and provenance attestations, so what is inside each image is auditable later.
@@ -93,7 +100,7 @@ jobs:
         # digest-scoped signature is the only one that means anything.
         run: |
           cosign sign --yes \
-            "${REGISTRY}/${{ github.repository_owner }}/${{ matrix.name }}@${DIGEST}"
+            "${REGISTRY}/${{ steps.image_owner.outputs.value }}/${{ matrix.name }}@${DIGEST}"
 
   deploy:
     needs: build
