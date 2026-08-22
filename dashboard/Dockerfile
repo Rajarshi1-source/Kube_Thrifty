@@ -22,6 +22,9 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# `public/` is optional in Next.js and this app does not currently ship one; ensure it exists so the
+# runtime stage's COPY below doesn't fail on a directory that was never committed.
+RUN mkdir -p public
 
 # lib/env.ts validates configuration at MODULE LOAD, so the build would fail without these. They are
 # build-time placeholders only: the real values are injected at runtime from a Secret, and nothing
