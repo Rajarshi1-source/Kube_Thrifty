@@ -4,6 +4,6 @@
 # can never fail for a reason unrelated to the recommendation logic.
 # pytest is held at 8.x because pytest-asyncio 1.2.0 declares `pytest<9`. Bumping pytest to 9.x
 # requires a pytest-asyncio release that supports it -- do not loosen either pin to paper over it.
-pytest==8.4.2
+pytest==9.0.3
 pytest-asyncio==1.2.0
 ruff==0.16.4
